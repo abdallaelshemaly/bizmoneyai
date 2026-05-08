@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 import app.api.admin_auth as admin_auth_module
 import app.api.ai as ai_module
 import app.api.auth as auth_module
+import app.services.admin_analytics as admin_analytics_module
 from app.api.admin import router as admin_router
 from app.api.admin_auth import protected_router as admin_protected_router
 from app.api.admin_auth import router as admin_auth_router
@@ -40,6 +41,7 @@ def create_test_app() -> FastAPI:
 
 def test_admin_read_endpoints_return_analytics(db_session, monkeypatch):
     monkeypatch.setattr(admin_auth_module, "verify_password", lambda plain, hashed: plain == hashed)
+    monkeypatch.setattr(admin_analytics_module, "utcnow", lambda: datetime(2026, 4, 15, 12, 0, 0))
 
     admin = Admin(name="Ops Admin", email="admin@example.com", password_hash="secret123")
     user_one = User(name="Alpha User", email="alpha@example.com", password_hash="pw", is_active=True)
@@ -131,6 +133,23 @@ def test_admin_read_endpoints_return_analytics(db_session, monkeypatch):
         message="Alpha User logged in",
         level="info",
     )
+    for record in (
+        admin,
+        user_one,
+        user_two,
+        food,
+        travel,
+        tx,
+        secondary_tx,
+        bonus_tx,
+        budget,
+        secondary_budget,
+        insight,
+        secondary_insight,
+        unusual_insight,
+        user_log,
+    ):
+        record.created_at = datetime(2026, 4, 5, 12, 0, 0)
     db_session.add_all([tx, secondary_tx, bonus_tx, budget, secondary_budget, insight, secondary_insight, unusual_insight, user_log])
     db_session.commit()
 

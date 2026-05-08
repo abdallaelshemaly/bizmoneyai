@@ -25,17 +25,17 @@ from app.schemas.transaction import (
 from app.services.admin_analytics import invalidate_admin_analytics_cache
 from app.services.budget_metrics import normalize_month
 from app.services import fraud_detector
+from app.services.fraud_insights import (
+    UNUSUAL_TRANSACTION_MESSAGES,
+    UNUSUAL_TRANSACTION_RULE_ID,
+    transaction_fraud_statuses,
+)
 from app.services.system_log import log_system_event
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 logger = logging.getLogger(__name__)
 
 CSV_CONTENT_TYPES = {"text/csv", "application/csv", "application/vnd.ms-excel", "text/plain", "application/octet-stream"}
-UNUSUAL_TRANSACTION_RULE_ID = "ml_unusual_transaction"
-UNUSUAL_TRANSACTION_MESSAGES = {
-    "warning": "Unusual transaction detected. This transaction appears higher risk than normal.",
-    "critical": "Critical unusual transaction detected. Review this transaction immediately.",
-}
 
 
 def _ensure_owned_category(db: Session, category_id: int, user_id: int) -> Category:
@@ -136,6 +136,34 @@ def _fraud_payload_for_transaction(tx: Transaction) -> dict[str, object | None]:
         "type": _paysim_type_for_transaction(tx.type),
         "step": 0,
     }
+
+
+def _transaction_response(tx: Transaction, fraud_status: dict[str, object | None] | None = None) -> dict[str, object | None]:
+    return {
+        "transaction_id": tx.transaction_id,
+        "user_id": tx.user_id,
+        "category_id": tx.category_id,
+        "amount": float(tx.amount),
+        "type": tx.type,
+        "description": tx.description,
+        "date": tx.date,
+        "created_at": tx.created_at,
+        "fraud_risk_level": (fraud_status or {}).get("fraud_risk_level"),
+        "fraud_probability": (fraud_status or {}).get("fraud_probability"),
+        "fraud_insight_id": (fraud_status or {}).get("fraud_insight_id"),
+    }
+
+
+def _transaction_responses(db: Session, *, user_id: int, transactions: list[Transaction]) -> list[dict[str, object | None]]:
+    fraud_statuses = transaction_fraud_statuses(
+        db,
+        user_id=user_id,
+        transaction_ids={int(tx.transaction_id) for tx in transactions if tx.transaction_id is not None},
+    )
+    return [
+        _transaction_response(tx, fraud_statuses.get(int(tx.transaction_id)))
+        for tx in transactions
+    ]
 
 
 def _has_unusual_transaction_insight(db: Session, *, user_id: int, transaction_id: int) -> bool:
@@ -444,6 +472,12 @@ async def _import_transactions_upload(
                 date=transaction_date,
             )
             db.add(tx)
+            db.flush()
+            _maybe_create_unusual_transaction_insight(
+                db,
+                user_id=current_user.user_id,
+                tx=tx,
+            )
             created.append(tx)
 
         log_system_event(
@@ -471,7 +505,7 @@ async def _import_transactions_upload(
         imported_count=len(created),
         skipped_count=skipped_count,
         rejected_rows=rejected_rows,
-        transactions=created,
+        transactions=_transaction_responses(db, user_id=current_user.user_id, transactions=created),
     )
 
 
@@ -493,7 +527,8 @@ def list_transactions(
         query = query.filter(Transaction.date >= date_from)
     if date_to is not None:
         query = query.filter(Transaction.date <= date_to)
-    return query.order_by(Transaction.date.desc(), Transaction.created_at.desc()).all()
+    transactions = query.order_by(Transaction.date.desc(), Transaction.created_at.desc()).all()
+    return _transaction_responses(db, user_id=current_user.user_id, transactions=transactions)
 
 
 @router.get("/timeseries", response_model=list[TransactionTimeSeriesPoint])
@@ -561,7 +596,12 @@ def create_transaction(
     db.commit()
     invalidate_admin_analytics_cache()
     db.refresh(tx)
-    return tx
+    fraud_statuses = transaction_fraud_statuses(
+        db,
+        user_id=current_user.user_id,
+        transaction_ids={int(tx.transaction_id)},
+    )
+    return _transaction_response(tx, fraud_statuses.get(int(tx.transaction_id)))
 
 
 @router.get("/export-csv")

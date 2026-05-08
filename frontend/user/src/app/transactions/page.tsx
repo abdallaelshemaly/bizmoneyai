@@ -8,9 +8,20 @@ import { useAuth } from "@/hooks/useAuth";
 import api from "@/lib/api";
 
 type Cat = { category_id: number; name: string; type: string };
-type Tx = { transaction_id: number; category_id: number; amount: number; type: "income" | "expense"; description: string | null; date: string };
+type FraudRiskLevel = "warning" | "critical";
+type Tx = {
+  transaction_id: number;
+  category_id: number;
+  amount: number;
+  type: "income" | "expense";
+  description: string | null;
+  date: string;
+  fraud_risk_level: FraudRiskLevel | null;
+  fraud_probability: number | null;
+  fraud_insight_id: number | null;
+};
 type Sug = { suggested_category_id: number | null; suggested_category_name: string | null; confidence: number };
-type UnusualDetection = { is_unusual: boolean; fraud_probability: number; risk_level: "normal" | "warning" | "critical"; model_name: string | null };
+type UnusualDetection = { fraud_probability: number | null; risk_level: FraudRiskLevel };
 type FormState = { category_id: string; amount: string; type: "income" | "expense"; description: string; date: string };
 type ImportResult = { imported_count: number; skipped_count: number; rejected_rows: { row_number: number; reason: string }[]; transactions: Tx[] };
 
@@ -20,6 +31,10 @@ const EMPTY: FormState = {
   type: "expense",
   description: "",
   date: new Date().toISOString().slice(0, 10),
+};
+const RISK_BADGE = {
+  warning: "bg-yellow-100 text-yellow-800",
+  critical: "bg-red-100 text-red-700",
 };
 
 export default function TransactionsPage() {
@@ -73,19 +88,6 @@ export default function TransactionsPage() {
     tmrRef.current = setTimeout(() => predict(value), 600);
   };
 
-  const detectUnusualTransaction = async (body: { amount: number; type: "income" | "expense" }) => {
-    try {
-      const response = await api.post<UnusualDetection>("/ml/detect-unusual-transaction", {
-        amount: body.amount,
-        transaction_type: body.type === "income" ? "CASH_IN" : "CASH_OUT",
-        step: 0,
-      });
-      setUnusualDetection(response.data.is_unusual ? response.data : null);
-    } catch {
-      setUnusualDetection(null);
-    }
-  };
-
   const startEdit = (tx: Tx) => {
     setEditId(tx.transaction_id);
     setForm({
@@ -127,8 +129,15 @@ export default function TransactionsPage() {
       if (editId !== null) {
         await api.put(`/transactions/${editId}`, body);
       } else {
-        await api.post("/transactions", body);
-        void detectUnusualTransaction(body);
+        const response = await api.post<Tx>("/transactions", body);
+        setUnusualDetection(
+          response.data.fraud_risk_level
+            ? {
+                risk_level: response.data.fraud_risk_level,
+                fraud_probability: response.data.fraud_probability,
+              }
+            : null,
+        );
       }
       setForm(EMPTY);
       setEditId(null);
@@ -183,10 +192,11 @@ export default function TransactionsPage() {
       });
       await load();
       const { imported_count, skipped_count } = response.data;
+      const unusualCount = response.data.transactions.filter((tx) => tx.fraud_risk_level).length;
       setNotice(
         skipped_count > 0
-          ? `Imported ${imported_count} transactions. Skipped ${skipped_count} duplicate row${skipped_count === 1 ? "" : "s"}.`
-          : `Imported ${imported_count} transactions.`,
+          ? `Imported ${imported_count} transactions. Skipped ${skipped_count} duplicate row${skipped_count === 1 ? "" : "s"}.${unusualCount ? ` Flagged ${unusualCount} unusual transaction${unusualCount === 1 ? "" : "s"}.` : ""}`
+          : `Imported ${imported_count} transactions.${unusualCount ? ` Flagged ${unusualCount} unusual transaction${unusualCount === 1 ? "" : "s"}.` : ""}`,
       );
     } catch (error: unknown) {
       const detail = isAxiosError(error) ? error.response?.data?.detail : null;
@@ -233,9 +243,11 @@ export default function TransactionsPage() {
             {unusualDetection.risk_level === "critical"
               ? "Critical unusual transaction detected. Review this transaction immediately."
               : "Unusual transaction detected. This transaction appears higher risk than normal."}
-            <span className="ml-2 font-medium">
-              {Math.round(unusualDetection.fraud_probability * 100)}% risk
-            </span>
+            {unusualDetection.fraud_probability !== null && (
+              <span className="ml-2 font-medium">
+                {Math.round(unusualDetection.fraud_probability * 100)}% risk
+              </span>
+            )}
           </div>
         )}
 
@@ -359,6 +371,7 @@ export default function TransactionsPage() {
                   <th className="px-4 py-3 text-left">Description</th>
                   <th className="px-4 py-3 text-left">Type</th>
                   <th className="px-4 py-3 text-right">Amount</th>
+                  <th className="px-4 py-3 text-left">Risk</th>
                   <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
@@ -375,6 +388,16 @@ export default function TransactionsPage() {
                     </td>
                     <td className={`px-4 py-3 text-right font-semibold ${tx.type === "income" ? "text-green-600" : "text-red-500"}`}>
                       {tx.type === "income" ? "+" : "-"}${Number(tx.amount).toFixed(2)}
+                    </td>
+                    <td className="px-4 py-3">
+                      {tx.fraud_risk_level ? (
+                        <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${RISK_BADGE[tx.fraud_risk_level]}`}>
+                          {tx.fraud_risk_level === "critical" ? "Critical" : "Unusual"}
+                          {tx.fraud_probability !== null ? ` ${Math.round(tx.fraud_probability * 100)}%` : ""}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-400">No alert</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 space-x-2 text-right">
                       <button onClick={() => startEdit(tx)} className="bg-slate-700 px-3 py-1 text-xs">Edit</button>

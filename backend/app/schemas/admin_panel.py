@@ -189,6 +189,9 @@ class AdminTransactionOut(BaseModel):
     description: str | None
     date: date
     created_at: datetime
+    fraud_risk_level: Literal["warning", "critical"] | None = None
+    fraud_probability: float | None = None
+    fraud_insight_id: int | None = None
 
 
 class AdminTransactionSummary(BaseModel):

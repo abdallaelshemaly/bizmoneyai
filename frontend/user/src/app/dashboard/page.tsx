@@ -25,6 +25,7 @@ type Summary = {
   budget_spent: number;
   budget_remaining: number;
   over_budget_count: number;
+  budget_month: string;
   top_expense_category_name: string | null;
   top_expense_category_total: number;
   health_status: "healthy" | "watch" | "at_risk";
@@ -38,15 +39,19 @@ const HEALTH = {
   watch: { card: "border-amber-200 bg-amber-50", text: "text-amber-800", badge: "Watch" },
   at_risk: { card: "border-red-200 bg-red-50", text: "text-red-800", badge: "At Risk" },
 };
+const DEFAULT_MONTH = new Date().toISOString().slice(0, 7);
 
 export default function DashboardPage() {
   const { user, loading } = useAuth();
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState(DEFAULT_MONTH);
 
   useEffect(() => {
     if (!user) return;
-    api.get<Summary>("/dashboard/summary").then((r) => setSummary(r.data));
-  }, [user]);
+    void api
+      .get<Summary>("/dashboard/summary", { params: { month: `${selectedMonth}-01` } })
+      .then((r) => setSummary(r.data));
+  }, [user, selectedMonth]);
 
   if (loading) {
     return <div className="flex min-h-screen items-center justify-center text-slate-400">Loading...</div>;
@@ -122,12 +127,19 @@ export default function DashboardPage() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <h2 className="mb-2 font-semibold text-ink">Budget Control</h2>
+              <p className="text-sm text-slate-500">Budget month: {summary?.budget_month ?? selectedMonth}</p>
             </div>
-            <Link href="/budgets" className="text-sm font-medium text-teal-700 hover:text-teal-800">
-              Manage Budgets
-            </Link>
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <label className="mb-1 block text-xs text-slate-500">Month</label>
+                <input type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} className="text-sm" />
+              </div>
+              <Link href="/budgets" className="text-sm font-medium text-teal-700 hover:text-teal-800">
+                Manage Budgets
+              </Link>
+            </div>
           </div>
-          <div className="mt-4 grid gap-4 sm:grid-cols-3">
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <p className="text-xs uppercase tracking-wide text-slate-400">Budgeted</p>
               <p className="mt-1 text-2xl font-bold text-ink">${fmt(summary?.budget_total ?? 0)}</p>
@@ -137,14 +149,22 @@ export default function DashboardPage() {
               <p className="mt-1 text-2xl font-bold text-red-500">${fmt(summary?.budget_spent ?? 0)}</p>
             </div>
             <div>
-              <p className="text-xs uppercase tracking-wide text-slate-400">Remaining</p>
+              <p className="text-xs uppercase tracking-wide text-slate-400">{budgetRemaining < 0 ? "Overspent" : "Remaining"}</p>
               <p className={`mt-1 text-2xl font-bold ${budgetRemaining >= 0 ? "text-green-600" : "text-red-500"}`}>
                 ${fmt(Math.abs(budgetRemaining))}
               </p>
             </div>
+            <div>
+              <p className="text-xs uppercase tracking-wide text-slate-400">Over Budget</p>
+              <p className={`mt-1 text-2xl font-bold ${(summary?.over_budget_count ?? 0) > 0 ? "text-red-500" : "text-green-600"}`}>
+                {summary?.over_budget_count ?? 0}
+              </p>
+            </div>
           </div>
           {!!summary?.budget_total && summary.over_budget_count > 0 && (
-            <p className="mt-4 text-sm text-slate-600">{summary.over_budget_count} budget category is currently over plan.</p>
+            <p className="mt-4 text-sm text-slate-600">
+              {summary.over_budget_count} budget {summary.over_budget_count === 1 ? "category is" : "categories are"} over plan.
+            </p>
           )}
         </div>
 

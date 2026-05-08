@@ -1,7 +1,7 @@
 from calendar import monthrange
 from datetime import date
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -40,7 +40,11 @@ def _health_status(expense_ratio: float, savings_rate: float, over_budget_count:
 
 
 @router.get("/summary", response_model=DashboardSummary)
-def summary(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def summary(
+    month: date | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     income = (
         db.query(func.coalesce(func.sum(Transaction.amount), 0.0))
         .filter(Transaction.user_id == current_user.user_id, func.lower(Transaction.type) == "income")
@@ -77,6 +81,7 @@ def summary(db: Session = Depends(get_db), current_user: User = Depends(get_curr
     top_expense = category_breakdown[0] if category_breakdown else None
 
     current_month = _month_start(utcnow().date())
+    budget_month = normalize_month(month) if month is not None else current_month
     trend_start = _add_months(current_month, -5)
     trend_end = _month_end(current_month)
     trend_rows = (
@@ -104,7 +109,7 @@ def summary(db: Session = Depends(get_db), current_user: User = Depends(get_curr
     active_months = [item for item in monthly_trend if item.income or item.expense]
     average_month_count = max(len(active_months), 1)
 
-    budget_snapshots = list_budget_snapshots(db, user_id=current_user.user_id, month=current_month)
+    budget_snapshots = list_budget_snapshots(db, user_id=current_user.user_id, month=budget_month)
     budget_total = sum(float(item["amount"] or 0.0) for item in budget_snapshots)
     budget_spent = sum(float(item["spent"] or 0.0) for item in budget_snapshots)
     budget_remaining = budget_total - budget_spent
@@ -127,6 +132,7 @@ def summary(db: Session = Depends(get_db), current_user: User = Depends(get_curr
         budget_spent=budget_spent,
         budget_remaining=budget_remaining,
         over_budget_count=over_budget_count,
+        budget_month=budget_month.strftime("%Y-%m"),
         top_expense_category_name=top_expense.category_name if top_expense else None,
         top_expense_category_total=top_expense.total if top_expense else 0.0,
         health_status=health_status,

@@ -20,6 +20,18 @@ def _build_authenticated_client(db_session, user: User) -> TestClient:
     return client
 
 
+def test_ai_insights_requires_authentication(db_session):
+    app.dependency_overrides[get_db] = lambda: db_session
+    client = TestClient(app)
+
+    try:
+        response = client.get("/ai/insights")
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Not authenticated"
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_ai_generate_endpoint_uses_custom_period_and_writes_rule_tracked_insights(db_session):
     user = User(name="API Insight User", email="api-insight@example.com", password_hash="x")
     db_session.add(user)

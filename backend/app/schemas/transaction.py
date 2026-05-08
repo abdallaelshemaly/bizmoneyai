@@ -29,6 +29,9 @@ class TransactionOut(BaseModel):
     description: str | None
     date: dt_date
     created_at: datetime
+    fraud_risk_level: Literal["warning", "critical"] | None = None
+    fraud_probability: float | None = None
+    fraud_insight_id: int | None = None
 
     class Config:
         from_attributes = True

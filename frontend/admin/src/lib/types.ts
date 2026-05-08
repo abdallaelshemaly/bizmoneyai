@@ -183,6 +183,9 @@ export type AdminTransactionRow = {
   description: string | null;
   date: string;
   created_at: string;
+  fraud_risk_level: "warning" | "critical" | null;
+  fraud_probability: number | null;
+  fraud_insight_id: number | null;
 };
 
 export type AdminTransactionSummary = {

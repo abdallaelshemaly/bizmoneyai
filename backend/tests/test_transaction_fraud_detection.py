@@ -121,7 +121,10 @@ def test_warning_or_critical_result_creates_ai_insight(
         response = _create_transaction(client, category, amount=5000)
 
         assert response.status_code == 201
-        transaction_id = response.json()["transaction_id"]
+        response_body = response.json()
+        transaction_id = response_body["transaction_id"]
+        assert response_body["fraud_risk_level"] == risk_level
+        assert response_body["fraud_probability"] == probability
 
         insight = db_session.query(AIInsight).filter(AIInsight.user_id == user.user_id).one()
         assert insight.rule_id == "ml_unusual_transaction"
@@ -151,6 +154,14 @@ def test_warning_or_critical_result_creates_ai_insight(
                 "step": 0,
             }
         ]
+
+        list_response = client.get("/transactions")
+        assert list_response.status_code == 200
+        list_body = list_response.json()
+        assert list_body[0]["transaction_id"] == transaction_id
+        assert list_body[0]["fraud_risk_level"] == risk_level
+        assert list_body[0]["fraud_probability"] == probability
+        assert list_body[0]["fraud_insight_id"] == insight.insight_id
     finally:
         app.dependency_overrides.clear()
 
@@ -183,5 +194,71 @@ def test_normal_result_does_not_create_ai_insight(db_session, monkeypatch):
             == 0
         )
         assert len(fake_detector.payloads) == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_imported_warning_or_critical_transaction_creates_ai_insight(db_session, monkeypatch):
+    fake_detector = FakeFraudDetector(
+        ready=True,
+        response={
+            "is_unusual": True,
+            "fraud_probability": 0.88,
+            "risk_level": "critical",
+            "model_name": "Fake Fraud Detector",
+        },
+    )
+    monkeypatch.setattr(transactions_api, "fraud_detector", fake_detector)
+    client, user, category = _client_with_expense_category(db_session)
+
+    try:
+        response = client.post(
+            "/transactions/import-csv",
+            files={
+                "file": (
+                    "transactions.csv",
+                    (
+                        "category_id,amount,type,description,date\n"
+                        f"{category.category_id},45000,expense,Emergency vendor transfer for urgent campaign settlement,2026-04-25\n"
+                    ),
+                    "text/csv",
+                )
+            },
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["imported_count"] == 1
+        imported_tx = body["transactions"][0]
+        assert imported_tx["fraud_risk_level"] == "critical"
+        assert imported_tx["fraud_probability"] == 0.88
+
+        insight = db_session.query(AIInsight).filter(AIInsight.user_id == user.user_id).one()
+        assert insight.rule_id == "ml_unusual_transaction"
+        assert insight.severity == "critical"
+        assert insight.metadata_json is not None
+        assert insight.metadata_json["transaction_id"] == imported_tx["transaction_id"]
+
+        unusual_log = (
+            db_session.query(SystemLog)
+            .filter(
+                SystemLog.user_id == user.user_id,
+                SystemLog.event_type == "unusual_transaction_detected",
+            )
+            .one()
+        )
+        assert unusual_log.metadata_json is not None
+        assert unusual_log.metadata_json["transaction_id"] == imported_tx["transaction_id"]
+
+        list_response = client.get("/transactions")
+        assert list_response.status_code == 200
+        assert list_response.json()[0]["fraud_risk_level"] == "critical"
+        assert fake_detector.payloads == [
+            {
+                "amount": 45000.0,
+                "type": "CASH_OUT",
+                "step": 0,
+            }
+        ]
     finally:
         app.dependency_overrides.clear()

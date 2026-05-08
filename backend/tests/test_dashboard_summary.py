@@ -96,7 +96,76 @@ def test_dashboard_summary_populates_charts_ratios_and_budgets():
         assert body["budget_spent"] == 2450.0
         assert body["budget_remaining"] == -700.0
         assert body["over_budget_count"] == 1
+        assert body["budget_month"] == current_month.strftime("%Y-%m")
         assert body["health_status"] == "at_risk"
+    finally:
+        app.dependency_overrides.clear()
+        db.close()
+        Base.metadata.drop_all(bind=engine)
+
+
+def test_dashboard_summary_uses_selected_budget_month():
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+    db = TestingSessionLocal()
+
+    app = FastAPI()
+    app.include_router(dashboard_router)
+
+    def override_get_db():
+        try:
+            yield db
+        finally:
+            pass
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    user = User(name="Dashboard Month User", email="dashboard-month@example.com", password_hash="pw")
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    marketing = Category(user_id=user.user_id, name="Marketing", type="expense")
+    db.add(marketing)
+    db.commit()
+    db.refresh(marketing)
+
+    db.add_all(
+        [
+            Transaction(
+                user_id=user.user_id,
+                category_id=marketing.category_id,
+                amount=48999.0,
+                type="expense",
+                date=date(2026, 4, 25),
+            ),
+            Budget(
+                user_id=user.user_id,
+                category_id=marketing.category_id,
+                amount=4000.0,
+                month=date(2026, 4, 1),
+            ),
+        ]
+    )
+    db.commit()
+
+    client = TestClient(app)
+    client.cookies.set("access_token", create_access_token(str(user.user_id)))
+
+    try:
+        response = client.get("/dashboard/summary", params={"month": "2026-04-01"})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["budget_month"] == "2026-04"
+        assert body["budget_total"] == 4000.0
+        assert body["budget_spent"] == 48999.0
+        assert body["budget_remaining"] == -44999.0
+        assert body["over_budget_count"] == 1
     finally:
         app.dependency_overrides.clear()
         db.close()

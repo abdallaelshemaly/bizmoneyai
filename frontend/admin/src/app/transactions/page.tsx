@@ -17,6 +17,11 @@ import {
   AdminUsersResponse,
 } from "@/lib/types";
 
+const RISK_BADGE = {
+  warning: "bg-amber-100 text-amber-700",
+  critical: "bg-rose-100 text-rose-700",
+};
+
 export default function AdminTransactionsPage() {
   const usersQuery = useQuery({
     queryKey: ["admin-transaction-user-options"],
@@ -152,6 +157,19 @@ export default function AdminTransactionsPage() {
           {formatCurrency(transaction.amount)}
         </span>
       ),
+    },
+    {
+      key: "fraud_risk_level",
+      label: "Risk",
+      render: (transaction) =>
+        transaction.fraud_risk_level ? (
+          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${RISK_BADGE[transaction.fraud_risk_level]}`}>
+            {transaction.fraud_risk_level === "critical" ? "Critical" : "Unusual"}
+            {transaction.fraud_probability !== null ? ` ${(transaction.fraud_probability * 100).toFixed(0)}%` : ""}
+          </span>
+        ) : (
+          <span className="text-xs text-slate-400">No alert</span>
+        ),
     },
   ];
 

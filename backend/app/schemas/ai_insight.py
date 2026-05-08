@@ -7,6 +7,7 @@ from pydantic import BaseModel
 class AIInsightOut(BaseModel):
     insight_id: int
     user_id: int
+    rule_id: str | None = None
     title: str
     message: str
     severity: Literal["info", "warning", "critical"]

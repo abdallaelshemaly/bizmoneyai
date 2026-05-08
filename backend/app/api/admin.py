@@ -64,6 +64,7 @@ from app.services.admin_analytics import (
     invalidate_admin_analytics_cache,
 )
 from app.services.budget_metrics import list_budget_snapshots
+from app.services.fraud_insights import transaction_fraud_statuses
 from app.services.system_log import log_system_event
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
@@ -569,22 +570,32 @@ def list_admin_transactions(
         Transaction.transaction_id.asc() if sort_order == "asc" else Transaction.transaction_id.desc(),
     )
 
+    page_rows = ordered_query.offset(offset).limit(limit).all()
+    fraud_statuses = transaction_fraud_statuses(
+        db,
+        transaction_ids={int(transaction.transaction_id) for transaction, *_ in page_rows},
+    )
+
     rows = []
-    for transaction, user_name, user_email, category_name in ordered_query.offset(offset).limit(limit).all():
+    for transaction, user_name, user_email, category_name in page_rows:
+        fraud_status = fraud_statuses.get(int(transaction.transaction_id), {})
         rows.append(
             AdminTransactionOut.model_validate(
                 {
-                "transaction_id": transaction.transaction_id,
-                "user_id": transaction.user_id,
-                "user_name": user_name,
-                "user_email": user_email,
-                "category_id": transaction.category_id,
-                "category_name": category_name,
-                "amount": float(transaction.amount),
-                "type": transaction.type,
-                "description": transaction.description,
-                "date": transaction.date,
-                "created_at": transaction.created_at,
+                    "transaction_id": transaction.transaction_id,
+                    "user_id": transaction.user_id,
+                    "user_name": user_name,
+                    "user_email": user_email,
+                    "category_id": transaction.category_id,
+                    "category_name": category_name,
+                    "amount": float(transaction.amount),
+                    "type": transaction.type,
+                    "description": transaction.description,
+                    "date": transaction.date,
+                    "created_at": transaction.created_at,
+                    "fraud_risk_level": fraud_status.get("fraud_risk_level"),
+                    "fraud_probability": fraud_status.get("fraud_probability"),
+                    "fraud_insight_id": fraud_status.get("fraud_insight_id"),
                 }
             )
         )

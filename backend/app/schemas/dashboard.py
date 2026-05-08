@@ -27,6 +27,7 @@ class DashboardSummary(BaseModel):
     budget_spent: float
     budget_remaining: float
     over_budget_count: int
+    budget_month: str
     top_expense_category_name: str | None
     top_expense_category_total: float
     health_status: Literal["healthy", "watch", "at_risk"]
