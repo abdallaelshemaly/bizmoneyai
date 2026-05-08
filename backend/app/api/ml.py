@@ -159,11 +159,15 @@ def detect_unusual_transaction(
     prediction_payload = {
         "amount": payload.amount,
         "type": payload.transaction_type,
-        "step": payload.step,
-        "oldbalanceOrg": payload.oldbalanceOrg,
-        "newbalanceOrig": payload.newbalanceOrig,
-        "oldbalanceDest": payload.oldbalanceDest,
-        "newbalanceDest": payload.newbalanceDest,
+        "category_name": payload.category_name,
+        "description": payload.description,
+        "date": payload.date.isoformat() if payload.date is not None else None,
+        "budget_amount": payload.budget_amount,
+        "budget_spent_before": payload.budget_spent_before,
+        "budget_usage_ratio": payload.budget_usage_ratio,
+        "user_avg_amount": payload.user_avg_amount,
+        "category_avg_amount": payload.category_avg_amount,
+        "recent_transaction_count": payload.recent_transaction_count,
     }
     try:
         result = fraud_detector.predict(prediction_payload)

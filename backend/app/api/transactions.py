@@ -1,7 +1,7 @@
 import csv
 import io
 import logging
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import extract, func
@@ -124,17 +124,72 @@ def _transaction_log_metadata(tx: Transaction, category: Category) -> dict[str, 
     }
 
 
-def _paysim_type_for_transaction(transaction_type: str) -> str:
-    if transaction_type == "income":
-        return "CASH_IN"
-    return "CASH_OUT"
+def _transaction_history_query(db: Session, *, user_id: int, tx: Transaction):
+    query = db.query(Transaction).filter(Transaction.user_id == user_id)
+    if tx.transaction_id is not None:
+        query = query.filter(Transaction.transaction_id != tx.transaction_id)
+    return query
 
 
-def _fraud_payload_for_transaction(tx: Transaction) -> dict[str, object | None]:
+def _fraud_payload_for_transaction(
+    db: Session,
+    *,
+    user_id: int,
+    tx: Transaction,
+    category: Category,
+) -> dict[str, object | None]:
+    budget_month = normalize_month(tx.date)
+    budget = _existing_budget_for_month(
+        db,
+        user_id=user_id,
+        category_id=category.category_id,
+        month=budget_month,
+    )
+    budget_amount = float(budget.amount) if budget is not None else 0.0
+
+    month_spend_query = (
+        _transaction_history_query(db, user_id=user_id, tx=tx)
+        .filter(
+            Transaction.category_id == category.category_id,
+            Transaction.type == "expense",
+            extract("year", Transaction.date) == budget_month.year,
+            extract("month", Transaction.date) == budget_month.month,
+        )
+    )
+    budget_spent_before = float(month_spend_query.with_entities(func.coalesce(func.sum(Transaction.amount), 0.0)).scalar() or 0.0)
+
+    history_query = _transaction_history_query(db, user_id=user_id, tx=tx).filter(Transaction.type == tx.type)
+    user_avg_amount = float(history_query.with_entities(func.avg(Transaction.amount)).scalar() or 0.0)
+    category_avg_amount = float(
+        _transaction_history_query(db, user_id=user_id, tx=tx)
+        .filter(Transaction.category_id == category.category_id)
+        .with_entities(func.avg(Transaction.amount))
+        .scalar()
+        or 0.0
+    )
+    recent_start = tx.date - timedelta(days=30)
+    recent_transaction_count = int(
+        _transaction_history_query(db, user_id=user_id, tx=tx)
+        .filter(Transaction.date >= recent_start, Transaction.date <= tx.date)
+        .with_entities(func.count(Transaction.transaction_id))
+        .scalar()
+        or 0
+    )
+
     return {
-        "amount": tx.amount,
-        "type": _paysim_type_for_transaction(tx.type),
-        "step": 0,
+        "amount": float(tx.amount),
+        "type": tx.type,
+        "category_id": category.category_id,
+        "category_name": category.name,
+        "description": tx.description,
+        "date": tx.date.isoformat(),
+        "budget_amount": budget_amount,
+        "budget_month": budget_month.isoformat(),
+        "budget_spent_before": budget_spent_before,
+        "budget_usage_ratio": budget_spent_before / budget_amount if budget_amount > 0 else 0.0,
+        "user_avg_amount": user_avg_amount,
+        "category_avg_amount": category_avg_amount,
+        "recent_transaction_count": recent_transaction_count,
     }
 
 
@@ -186,11 +241,18 @@ def _maybe_create_unusual_transaction_insight(
     *,
     user_id: int,
     tx: Transaction,
+    category: Category,
 ) -> None:
     try:
         if not fraud_detector.is_ready():
             return
-        result = fraud_detector.predict(_fraud_payload_for_transaction(tx))
+        fraud_payload = _fraud_payload_for_transaction(
+            db,
+            user_id=user_id,
+            tx=tx,
+            category=category,
+        )
+        result = fraud_detector.predict(fraud_payload)
     except Exception:
         logger.exception("Fraud detection failed for transaction %s", tx.transaction_id)
         return
@@ -214,6 +276,7 @@ def _maybe_create_unusual_transaction_insight(
         if risk_level == "critical"
         else "Unusual Transaction Detected"
     )
+    log_level = "error" if risk_level == "critical" else "warning"
 
     try:
         with db.begin_nested():
@@ -240,6 +303,10 @@ def _maybe_create_unusual_transaction_insight(
                         "fraud_probability": fraud_probability,
                         "amount": tx.amount,
                         "type": tx.type,
+                        "category_id": category.category_id,
+                        "category_name": category.name,
+                        "budget_amount": fraud_payload.get("budget_amount"),
+                        "budget_month": fraud_payload.get("budget_month"),
                         "model_name": result.get("model_name"),
                     },
                 )
@@ -248,7 +315,7 @@ def _maybe_create_unusual_transaction_insight(
                 db,
                 "unusual_transaction_detected",
                 message,
-                level=risk_level,
+                level=log_level,
                 user_id=user_id,
                 entity_id=tx.transaction_id,
                 metadata={
@@ -477,6 +544,7 @@ async def _import_transactions_upload(
                 db,
                 user_id=current_user.user_id,
                 tx=tx,
+                category=category,
             )
             created.append(tx)
 
@@ -592,6 +660,7 @@ def create_transaction(
         db,
         user_id=current_user.user_id,
         tx=tx,
+        category=category,
     )
     db.commit()
     invalidate_admin_analytics_cache()

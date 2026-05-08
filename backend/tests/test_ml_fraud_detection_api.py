@@ -67,12 +67,16 @@ def test_detect_unusual_transaction_returns_expected_schema(db_session, monkeypa
             "/ml/detect-unusual-transaction",
             json={
                 "amount": 7500,
-                "transaction_type": "TRANSFER",
-                "step": 9,
-                "oldbalanceOrg": 7500,
-                "newbalanceOrig": 0,
-                "oldbalanceDest": 100,
-                "newbalanceDest": 7600,
+                "transaction_type": "expense",
+                "category_name": "Marketing",
+                "description": "Urgent campaign settlement",
+                "date": "2026-04-25",
+                "budget_amount": 4000,
+                "budget_spent_before": 3900,
+                "budget_usage_ratio": 0.975,
+                "user_avg_amount": 1200,
+                "category_avg_amount": 1100,
+                "recent_transaction_count": 1,
             },
         )
 
@@ -92,12 +96,16 @@ def test_detect_unusual_transaction_returns_expected_schema(db_session, monkeypa
         }
         assert fake_detector.last_payload == {
             "amount": 7500.0,
-            "type": "TRANSFER",
-            "step": 9,
-            "oldbalanceOrg": 7500.0,
-            "newbalanceOrig": 0.0,
-            "oldbalanceDest": 100.0,
-            "newbalanceDest": 7600.0,
+            "type": "expense",
+            "category_name": "Marketing",
+            "description": "Urgent campaign settlement",
+            "date": "2026-04-25",
+            "budget_amount": 4000.0,
+            "budget_spent_before": 3900.0,
+            "budget_usage_ratio": 0.975,
+            "user_avg_amount": 1200.0,
+            "category_avg_amount": 1100.0,
+            "recent_transaction_count": 1,
         }
     finally:
         app.dependency_overrides.clear()
@@ -121,7 +129,7 @@ def test_detect_unusual_transaction_works_when_model_unavailable(db_session, mon
     try:
         response = client.post(
             "/ml/detect-unusual-transaction",
-            json={"amount": 25.5, "transaction_type": "UNKNOWN_TYPE"},
+            json={"amount": 25.5, "transaction_type": "expense"},
         )
 
         assert response.status_code == 200

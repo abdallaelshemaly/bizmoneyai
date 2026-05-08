@@ -24,6 +24,17 @@ const BADGE = { info: "bg-blue-100 text-blue-700", warning: "bg-yellow-100 text-
 const today = new Date().toISOString().slice(0, 10);
 const defaultStart = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
+function displayInsightMessage(insight: Insight) {
+  if (insight.rule_id !== "ml_unusual_transaction") return insight.message;
+  if (insight.severity === "critical") {
+    return "A high-risk unusual transaction was detected. This transaction is significantly outside your normal spending pattern and may require immediate review.";
+  }
+  if (insight.severity === "warning") {
+    return "An unusual transaction was detected. Review this transaction to confirm it matches your expected business activity.";
+  }
+  return insight.message;
+}
+
 function readableApiError(error: unknown, fallback: string) {
   if (!axios.isAxiosError(error)) return fallback;
 
@@ -166,17 +177,12 @@ export default function InsightsPage() {
                     <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
                       <h3 className={`font-semibold ${TXT[ins.severity]}`}>{ins.title}</h3>
                       <div className="flex flex-wrap gap-2">
-                        {ins.rule_id === "ml_unusual_transaction" && (
-                          <span className="rounded-full bg-slate-900 px-2.5 py-0.5 text-xs font-medium text-white">
-                            Model 2
-                          </span>
-                        )}
                         <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${BADGE[ins.severity]}`}>
                           {ins.severity.toUpperCase()}
                         </span>
                       </div>
                     </div>
-                    <p className={`text-sm ${TXT[ins.severity]}`}>{ins.message}</p>
+                    <p className={`text-sm ${TXT[ins.severity]}`}>{displayInsightMessage(ins)}</p>
                     <p className="mt-2 text-xs text-slate-400">
                       Period: {ins.period_start} to {ins.period_end} | Generated: {new Date(ins.created_at).toLocaleString()}
                     </p>

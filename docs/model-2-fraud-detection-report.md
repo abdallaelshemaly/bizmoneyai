@@ -1,153 +1,134 @@
-# Model 2 Fraud Detection Report
+# Model 2: Fraud Detection Model Using BizMoneyAI-Compatible Unusual Transaction Detection
 
-## Introduction
+## Problem Statement
 
-Model 2 is the BizMoneyAI Fraud Detection Model. Its purpose is to identify potentially unusual or fraudulent transactions and support the product with non-blocking risk warnings. The model is built as a supervised binary classifier using labeled PaySim data, then integrated into the backend service layer, the ML API, transaction creation, AI insights, system logs, the admin dashboard, and a simple frontend warning flow.
+BizMoneyAI needs a practical Model 2 that can detect unusual or risky transactions in the live SaaS product without blocking transaction creation. The model must work with the fields the application actually collects during manual transaction creation and CSV/file import, then surface useful warnings through existing AI insights, transaction views, and admin analytics.
 
-The model is currently suitable for project-stage anomaly visibility and fraud warning behavior. It should not be presented as a final production-grade fraud system because the PaySim dataset contains strong balance-derived fraud signals and BizMoneyAI runtime transactions do not yet provide all PaySim-style balance fields.
+The product goal is not autonomous fraud adjudication. The current goal is unusual transaction detection: identify transactions that look materially riskier than a user's normal business behavior and raise warning or critical alerts for review.
 
-## Dataset
+## Why PaySim Was Replaced
 
-The PaySim dataset is a synthetic dataset designed to simulate real financial transaction behavior. It provides realistic transaction patterns and fraud scenarios suitable for training machine learning models when real user data is not available.
+PaySim was valuable for initial experimentation because it offered a large synthetic financial dataset with labeled fraud cases. That made it useful for early exploration, backend API scaffolding, and proof-of-concept fraud workflows before BizMoneyAI had enough internal transaction history.
 
-Dataset details:
+However, PaySim was not a good final runtime fit for BizMoneyAI. The earlier approach depended on fields such as:
 
-- Dataset name: PaySim mobile money transaction simulation dataset
-- Raw dataset path: `backend/data/raw/paysim/PS_20174392719_1491204439457_log.csv`
-- Processed dataset path: `backend/data/processed/paysim_fraud_processed.csv`
-- Raw rows: `6,362,620`
-- Raw columns: `11`
-- Processed rows: `6,362,620`
-- Processed columns: `16`
-- Feature count: `15`
-- Target variable: `isFraud`
-- Normal rows: `6,354,407`
-- Fraud rows: `8,213`
-- Fraud percentage: `0.1291%`
-
-Raw dataset columns:
-
-- `step`
-- `type`
-- `amount`
-- `nameOrig`
-- `oldbalanceOrg`
-- `newbalanceOrig`
-- `nameDest`
-- `oldbalanceDest`
-- `newbalanceDest`
-- `isFraud`
-- `isFlaggedFraud`
-
-Transaction type distribution:
-
-- `CASH_OUT`: `2,237,500`
-- `PAYMENT`: `2,151,495`
-- `CASH_IN`: `1,399,284`
-- `TRANSFER`: `532,909`
-- `DEBIT`: `41,432`
-
-Amount statistics:
-
-- Minimum: `0.00`
-- Maximum: `92,445,516.64`
-- Mean: `179,861.90`
-- Median: `74,871.94`
-
-## Preprocessing
-
-Preprocessing is implemented in:
-
-```text
-backend/app/ml/anomaly/prepare_paysim_data.py
-```
-
-The preprocessing pipeline:
-
-- Loads the raw PaySim CSV file.
-- Validates required columns.
-- Drops unusable identifier columns:
-  - `nameOrig`
-  - `nameDest`
-- Keeps numeric transaction and balance columns.
-- Engineers balance-derived features.
-- One-hot encodes transaction type.
-- Writes the processed dataset to `backend/data/processed/paysim_fraud_processed.csv`.
-
-Required preprocessing columns:
-
-- `step`
-- `type`
-- `amount`
 - `oldbalanceOrg`
 - `newbalanceOrig`
 - `oldbalanceDest`
 - `newbalanceDest`
-- `isFraud`
-
-Processed feature columns:
-
-- `amount`
-- `step`
-- `oldbalanceOrg`
-- `newbalanceOrig`
-- `oldbalanceDest`
-- `newbalanceDest`
-- `orig_balance_delta`
-- `dest_balance_delta`
 - `orig_error`
 - `dest_error`
-- `type_CASH_IN`
-- `type_CASH_OUT`
-- `type_DEBIT`
-- `type_PAYMENT`
-- `type_TRANSFER`
 
-Target column:
+Those fields do not exist in the real BizMoneyAI transaction flow. The live app creates and imports transactions using business-facing fields such as amount, type, category, description, date, and budget context. That caused a training/runtime feature mismatch: realistic suspicious rows in BizMoneyAI, such as a `45000` Marketing expense against a `4000` budget, could still be classified as normal by the PaySim-oriented model.
 
-- `isFraud`
+For that reason, PaySim is now historical background only. It should be described as initial experimentation, not as the final live Model 2 runtime implementation.
+
+## Current Live Model
+
+The current live implementation uses `IsolationForest` for BizMoneyAI-compatible unusual transaction detection.
+
+This is a better fit for the current product because:
+
+- BizMoneyAI does not yet have a reliable labeled fraud dataset from real users.
+- The problem is currently closer to anomaly detection than supervised fraud classification.
+- The runtime inputs are business transaction features plus application context, not mobile-money balance transition fields.
+
+The report name can remain "Fraud Detection Model" for product/reporting purposes, but the actual live behavior is unusual/risky transaction detection using BizMoneyAI-compatible features.
+
+## Dataset Generation
+
+The current training data is generated as BizMoneyAI-style synthetic business transaction data, not PaySim-style balance simulation.
+
+Generation script:
+
+```text
+backend/app/ml/anomaly/generate_bizmoneyai_fraud_data.py
+```
+
+Generated dataset path:
+
+```text
+backend/data/processed/bizmoneyai_unusual_transactions.csv
+```
+
+The generated dataset includes realistic rows with:
+
+- `category_name`
+- `amount`
+- `type`
+- `description`
+- `date`
+- `budget_amount`
+- `budget_month`
+- `budget_spent_before`
+- `user_avg_amount`
+- `category_avg_amount`
+- `recent_transaction_count`
+- `is_outlier`
+- `expected_risk_level`
+
+The generated data intentionally includes both:
+
+- normal business transactions
+- clear outlier patterns such as large overspends, unusual category spikes, urgent large vendor transfers, and abnormal amounts relative to budget and user/category history
+
+This keeps training and validation aligned with what the product actually knows at runtime.
 
 ## Feature Engineering
 
-Engineered features:
+The live detector uses the following feature columns:
 
-- `orig_balance_delta = oldbalanceOrg - newbalanceOrig`
-- `dest_balance_delta = newbalanceDest - oldbalanceDest`
-- `orig_error = oldbalanceOrg - amount - newbalanceOrig`
-- `dest_error = oldbalanceDest + amount - newbalanceDest`
+- `log_amount`
+- `is_expense`
+- `is_income`
+- `month`
+- `day_of_month`
+- `day_of_week`
+- `has_budget`
+- `budget_amount_log`
+- `budget_usage_ratio`
+- `amount_to_budget_ratio`
+- `projected_budget_usage_ratio`
+- `budget_overspend_ratio`
+- `amount_to_user_avg_ratio`
+- `amount_to_category_avg_ratio`
+- `recent_transaction_count_30d`
+- `description_urgency_score`
+- `category_risk_weight`
 
-Transaction type encoding:
+Feature engineering is implemented in:
 
-- The categorical `type` column is converted using one-hot encoding.
-- The resulting binary features are:
-  - `type_CASH_IN`
-  - `type_CASH_OUT`
-  - `type_DEBIT`
-  - `type_PAYMENT`
-  - `type_TRANSFER`
+```text
+backend/app/services/fraud_detector.py
+```
 
-Why these features are useful:
+The key design idea is to combine raw transaction facts with business context:
 
-- `amount` captures transaction size.
-- `step` captures simulation time progression.
-- Original and destination balance fields provide before/after account movement context.
-- Balance deltas capture how much money moved from origin and into destination accounts.
-- Error features capture whether the observed balance changes match the transaction amount.
-- Transaction type helps the model distinguish behavior patterns because fraud in PaySim is concentrated mainly in transfer-like flows.
+- amount size
+- transaction direction (`income` or `expense`)
+- calendar timing
+- budget coverage and overspend
+- comparison against user's prior transactions
+- comparison against category history
+- urgency-related description language
+- category-specific risk weighting
 
-Important caution:
+Important examples:
 
-The balance-derived features are powerful, but they also create leakage risk. In PaySim, fraud behavior is strongly tied to balance transitions, so `orig_error`, `dest_error`, and the balance fields may make the classification task easier than it would be with real BizMoneyAI runtime transaction data.
+- `budget_overspend_ratio` measures how far the transaction pushes projected spending beyond the category budget.
+- `amount_to_user_avg_ratio` compares the transaction to the user's typical same-type transaction size.
+- `amount_to_category_avg_ratio` compares the transaction to the user's historical behavior for that category.
+- `description_urgency_score` increases when the description contains terms such as `urgent`, `emergency`, `wire`, `transfer`, `manual`, `override`, `offshore`, or `settlement`.
 
-## Model
+## IsolationForest Algorithm
 
-Model file:
+Training script:
 
 ```text
 backend/app/ml/anomaly/train_fraud_model.py
 ```
 
-Model artifact:
+Saved artifact:
 
 ```text
 backend/app/ml/models/fraud_detector.joblib
@@ -155,470 +136,360 @@ backend/app/ml/models/fraud_detector.joblib
 
 Model details:
 
-- Model name: Fraud Detection Model
-- Artifact model name: `BizMoneyAI Model 2 Fraud Detector`
-- Algorithm: `RandomForestClassifier`
-- Task type: supervised binary classification
-- Positive class: fraud, represented by `isFraud = 1`
-- Negative class: normal, represented by `isFraud = 0`
+- Model name: `BizMoneyAI Model 2 Fraud Detector`
+- Model family: `bizmoneyai_unusual_transaction`
+- Algorithm: `IsolationForest`
+- Task type: anomaly detection / unusual transaction detection
+- Runtime output: normalized risk score exposed as `fraud_probability` for API compatibility
 
 Training parameters:
 
-- `n_estimators=100`
-- `max_depth=None`
-- `class_weight="balanced"`
+- `n_estimators=300`
+- `contamination=0.04`
+- `max_samples="auto"`
 - `random_state=42`
 - `n_jobs=-1`
-- train/test split: stratified
-- `test_size=0.2`
-- model threshold saved in artifact: `0.5`
+- test split: `0.2`
+- warning threshold: `0.50`
+- critical threshold: `0.80`
 
-The saved artifact contains:
+The artifact stores:
 
-- trained Random Forest model
-- feature column order
-- threshold
-- model metadata
-- training parameters
-- target distribution
-- evaluation metrics
+- trained `IsolationForest` model
+- exact feature column order
+- model family metadata
+- calibrated raw anomaly thresholds
+- training metadata
+- validation metrics
 
-## Training
+## Runtime Feature Mapping
 
-Training command:
+The runtime detector no longer expects PaySim balance fields.
 
-```powershell
-python backend/app/ml/anomaly/train_fraud_model.py
+Instead, the backend builds the prediction payload from real BizMoneyAI transaction data and database context, including:
+
+- current transaction amount
+- transaction type
+- category id and category name
+- description
+- transaction date
+- matching budget amount for the transaction month
+- budget spend before the current transaction
+- budget usage ratio
+- user average amount
+- category average amount
+- recent transaction count
+
+This mapping is built in:
+
+```text
+backend/app/api/transactions.py
 ```
 
-Training split:
+For manual transaction creation and import, the payload is assembled after the transaction is flushed so the system has a real transaction id and can compute historical context from the database.
 
-- Train rows: `5,090,096`
-- Test rows: `1,272,524`
-- Stratified split: yes
-- Class imbalance handling: `class_weight="balanced"`
+## Training Process
 
-The dataset is highly imbalanced, with only `0.1291%` fraud rows. The model therefore uses class balancing and stratified splitting to preserve the fraud ratio during evaluation.
+The training process is:
 
-## Evaluation
+1. Generate BizMoneyAI-style dataset rows.
+2. Convert each row into the same engineered feature space used by the runtime detector.
+3. Train `IsolationForest` on the normal subset of the data.
+4. Use generated outlier rows for threshold calibration and validation.
+5. Save the trained artifact and risk threshold metadata.
 
-Latest holdout test metrics:
+The model is therefore trained in a way that matches the live runtime feature contract.
 
-- Accuracy: `0.999997`
-- Precision: `1.000000`
-- Recall: `0.997565`
-- F1-score: `0.998781`
-- ROC-AUC: `0.998782`
-- Confusion matrix `[[tn, fp], [fn, tp]]`: `[[1270881, 0], [4, 1639]]`
-- False positives: `0`
-- False negatives: `4`
+Useful commands:
 
-Train metrics:
+```powershell
+cd backend
+python -m app.ml.anomaly.generate_bizmoneyai_fraud_data
+python -m app.ml.anomaly.train_fraud_model
+python -m app.ml.anomaly.validate_fraud_detector --dataset-eval
+```
 
-- Accuracy: `1.000000`
-- Precision: `1.000000`
+## Validation Metrics
+
+Latest dataset validation metrics for the current live implementation:
+
+- Precision: `0.950370`
 - Recall: `1.000000`
-- F1-score: `1.000000`
-- ROC-AUC: `1.000000`
-- Confusion matrix `[[tn, fp], [fn, tp]]`: `[[5083526, 0], [0, 6570]]`
+- F1-score: `0.974553`
+- Confusion matrix `[[tn, fp], [fn, tp]]`: `[[4953, 47], [0, 900]]`
 
-Train/test gap:
+Latest runtime validation example:
 
-- Accuracy gap: `0.000003`
-- Precision gap: `0.000000`
-- Recall gap: `0.002435`
-- F1 gap: `0.001219`
-- ROC-AUC gap: `0.001218`
+- `45000` Marketing overspend returns `critical`
 
-Sampled cross-validation:
+Interpretation:
 
-- Fraud rows included: `8,213`
-- Normal rows sampled: `50,000`
-- Folds: `3`
-- Mean precision: `0.999634`
-- Mean recall: `0.995860`
-- Mean F1-score: `0.997743`
-
-Evaluation interpretation:
-
-- Accuracy alone is misleading because the fraud class is rare.
-- A naive model that always predicts normal would still achieve very high accuracy while detecting no fraud.
-- Precision, recall, F1-score, ROC-AUC, false positives, and false negatives are more useful for fraud detection.
-- Underfitting is not suspected.
-- Classic overfitting is not strongly indicated by the small train/test gap.
-- The metrics are likely inflated by PaySim balance-derived signals.
+- Recall is currently perfect on the generated validation dataset, meaning the generated outliers are being caught.
+- Precision is strong but not perfect, which is expected for an anomaly detector intended to surface risky behavior rather than silently suppress alerts.
+- These numbers are validation metrics for synthetic BizMoneyAI-style data, not proof of production-grade fraud accuracy on real customer fraud labels.
 
 ## Backend Integration
 
-Runtime service:
+Main runtime service:
 
 ```text
 backend/app/services/fraud_detector.py
 ```
 
-Backend API endpoint:
+ML API endpoint:
 
 ```text
 POST /ml/detect-unusual-transaction
 ```
 
-Request schema:
+The API response shape is preserved:
 
-- `amount`: required float
-- `transaction_type`: optional string
-- `step`: optional integer
-- `oldbalanceOrg`: optional float
-- `newbalanceOrig`: optional float
-- `oldbalanceDest`: optional float
-- `newbalanceDest`: optional float
+- `is_unusual`
+- `fraud_probability`
+- `risk_level`
+- `model_name`
 
-Response schema:
+`fraud_probability` is now a normalized anomaly risk score rather than a supervised class probability, but it stays in the same field name to preserve API compatibility.
 
-- `is_unusual`: boolean
-- `fraud_probability`: float
-- `risk_level`: string, one of `normal`, `warning`, or `critical`
-- `model_name`: optional string
+Risk mapping:
 
-Risk thresholds:
+- score `< 0.50`: `normal`
+- score `>= 0.50` and `< 0.80`: `warning`
+- score `>= 0.80`: `critical`
 
-- probability `>= 0.80`: `critical`
-- probability `>= 0.50`: `warning`
-- probability `< 0.50`: `normal`
+Failure behavior:
 
-Model loading strategy:
+- if the model is missing, incompatible, or prediction fails, the backend returns a safe normal response
+- transaction creation remains non-blocking
 
-- The service loads `fraud_detector.joblib` once through a module-level detector instance.
-- `is_ready()` reports whether a valid model artifact is loaded.
-- `predict(payload: dict)` builds a feature row in the saved feature column order.
-- Missing feature columns are created with safe default values.
-- Unknown transaction types are handled safely by leaving one-hot type indicators as zero.
-- If the model file is missing, invalid, or prediction fails, the service returns a safe normal-risk response instead of crashing the backend.
+## Import Integration
 
-## System Behavior
+Model 2 runs in both:
 
-The model can run in two backend contexts:
+- manual transaction creation
+- CSV/file import
 
-- Direct API call through `POST /ml/detect-unusual-transaction`
-- Manual transaction creation through `POST /transactions`
+Import endpoints:
 
-Transaction creation behavior:
+- `POST /transactions/import-csv`
+- `POST /transactions/import-file`
 
-- The transaction is created and flushed first.
-- The fraud detector runs afterward as a non-blocking side effect.
-- The transaction creation flow is not blocked if ML fails.
-- BizMoneyAI `expense` transactions are mapped to PaySim-like `CASH_OUT`.
-- BizMoneyAI `income` transactions are mapped to PaySim-like `CASH_IN`.
-- Missing PaySim balance fields are defaulted safely by the runtime service.
+During import, the backend:
 
-Normal transaction:
+- parses the transaction row
+- creates or finds the category
+- optionally creates the month budget from `budget_amount` and `budget_month`
+- creates the transaction
+- runs unusual transaction detection using the saved transaction plus budget/history context
+- returns the imported transaction rows including `fraud_risk_level` and `fraud_probability` when an unusual insight exists
 
-- `risk_level = normal`
-- no unusual AI insight is created
-- no `unusual_transaction_detected` system log is written
-- transaction creation succeeds normally
+This means suspicious imported rows are now part of the same Model 2 flow as manually created transactions.
 
-Warning transaction:
+## AIInsight Creation
 
-- `risk_level = warning`
-- creates an `AIInsight` with severity `warning`
-- insight message: `Unusual transaction detected. This transaction appears higher risk than normal.`
-- writes a `system_log` event with event type `unusual_transaction_detected`
+When Model 2 returns `warning` or `critical`, the backend creates an `AIInsight` with:
 
-Critical transaction:
+- `rule_id = ml_unusual_transaction`
+- severity `warning` or `critical`
+- a transaction-scoped metadata payload
 
-- `risk_level = critical`
-- creates an `AIInsight` with severity `critical`
-- insight message: `Critical unusual transaction detected. Review this transaction immediately.`
-- writes a `system_log` event with event type `unusual_transaction_detected`
+Current metadata includes:
 
-AIInsight creation logic:
+- `transaction_id`
+- `risk_level`
+- `fraud_probability`
+- `amount`
+- `type`
+- `category_id`
+- `category_name`
+- `budget_amount`
+- `budget_month`
+- `model_name`
+- `scope_key`
 
-- AI insights use `rule_id=ml_unusual_transaction`.
-- Metadata includes transaction id, risk level, fraud probability, amount, transaction type, model name, and a transaction-scoped `scope_key`.
-- Duplicate protection is transaction scoped to avoid creating repeated insights too aggressively.
+The backend also writes a `system_log` entry with:
 
-System log event:
+- event type: `unusual_transaction_detected`
+- metadata containing transaction id, risk level, and probability
 
-- Event type: `unusual_transaction_detected`
-- Metadata includes:
-  - `transaction_id`
-  - `risk_level`
-  - `probability`
+Duplicate protection is handled at the transaction scope so repeated processing does not create redundant unusual transaction insights for the same row.
 
-## Frontend/Admin Integration
+## Frontend and Admin Visibility
+
+The live implementation is visible across the product through existing UI surfaces.
 
 User frontend:
 
-- File: `frontend/user/src/app/transactions/page.tsx`
-- After a transaction is saved, the page calls `POST /ml/detect-unusual-transaction`.
-- If the result is `warning` or `critical`, the user sees a small non-blocking warning banner.
-- The banner does not prevent saving.
-- Normal results show no extra UI.
+- transaction responses include `fraud_risk_level`, `fraud_probability`, and `fraud_insight_id`
+- the transactions page shows an `Unusual` or `Critical` badge after reload
+- the insights page highlights `ml_unusual_transaction` insights
 
-Admin backend analytics:
+Admin visibility:
 
-- File: `backend/app/services/admin_analytics.py`
-- Anomaly metrics are aggregated from existing `AIInsight` records where `rule_id=ml_unusual_transaction`.
-- No new table is used.
+- admin analytics aggregate unusual transaction counts from `AIInsight` rows where `rule_id = ml_unusual_transaction`
+- the admin dashboard shows `total_unusual_transactions`, warning/critical counts, and recent unusual transaction insights
+- the admin transactions table shows the risk badge and score
+- the admin logs view can filter `unusual_transaction_detected`
 
-Admin dashboard metrics:
+This reuses the existing AI insight and analytics infrastructure without introducing a new database table.
 
-- `total_unusual_transactions`
-- `unusual_warning_count`
-- `unusual_critical_count`
-- `recent_unusual_transaction_insights`
+## Historical Note on PaySim
 
-Admin frontend:
+PaySim should still be mentioned in the final documentation, but only as the initial experimentation stage.
 
-- File: `frontend/admin/src/app/page.tsx`
-- Shows an `Unusual Tx` metric card.
-- Shows a compact unusual transaction monitoring panel with recent warning/critical insights.
+Appropriate positioning:
 
-Admin logs:
-
-- File: `frontend/admin/src/app/logs/page.tsx`
-- Includes `unusual_transaction_detected` as a filter option.
-
-## Testing and Verification
-
-Model artifact inspection confirmed that `backend/app/ml/models/fraud_detector.joblib` contains:
-
-- trained `RandomForestClassifier`
-- `predict_proba` support
-- feature column order
-- threshold value
-- metadata
-- saved evaluation metrics
-
-Runtime validation examples:
-
-| Case | Fraud Probability | Risk Level | Is Unusual |
-| --- | ---: | --- | --- |
-| normal small PAYMENT | `0.000000` | normal | false |
-| normal moderate CASH_OUT | `0.000000` | normal | false |
-| normal CASH_IN | `0.000000` | normal | false |
-| suspicious very large TRANSFER | `0.990000` | critical | true |
-| suspicious balance mismatch | `0.000000` | normal | false |
-| suspicious origin unchanged after transfer | `0.040000` | normal | false |
-| suspicious extreme amount | `1.000000` | critical | true |
-
-Backend tests verified:
-
-- fraud detector service handles missing model safely
-- `POST /ml/detect-unusual-transaction` requires authentication
-- API response schema is stable
-- model unavailable returns a safe response
-- normal transaction creation does not create an unusual insight
-- warning and critical results create `AIInsight` records with `rule_id=ml_unusual_transaction`
-- transaction creation still succeeds if the detector fails
-- `system_log` receives `unusual_transaction_detected` for warning and critical detections
-- admin analytics expose anomaly metrics
-
-Frontend and admin build checks passed:
-
-- user frontend build passed
-- admin frontend build passed
-- user warning banner is non-blocking
-- admin dashboard renders anomaly metrics
-
-Useful validation commands:
-
-```powershell
-cd backend
-python -m app.ml.anomaly.validate_fraud_detector
-python -m pytest tests/test_fraud_detector_service.py tests/test_ml_fraud_detection_api.py tests/test_transaction_fraud_detection.py tests/test_admin_api.py
-python -m compileall app/ml/anomaly app/services/fraud_detector.py app/api/ml.py
-```
-
-```powershell
-cd frontend/user
-npm run build
-```
-
-```powershell
-cd frontend/admin
-npm run build
-```
-
-## Advantages
-
-- Uses a real supervised machine learning model rather than only hard-coded rules.
-- Handles severe class imbalance with `class_weight="balanced"`.
-- Uses stratified train/test evaluation.
-- Preserves feature column order in the saved artifact.
-- Provides safe runtime fallback if the model is unavailable.
-- Does not block transaction creation.
-- Integrates with existing AIInsight and system log infrastructure.
-- Adds admin visibility without changing the database schema.
-- Adds frontend warning visibility without redesigning the UI.
+- PaySim helped with the first fraud-model prototype.
+- It provided useful early intuition and implementation scaffolding.
+- It was replaced because its balance-driven features did not match BizMoneyAI runtime inputs.
+- The current live Model 2 is not the old PaySim `RandomForestClassifier`.
 
 ## Limitations
 
-- PaySim is synthetic and may not represent real BizMoneyAI transaction behavior.
-- The model relies heavily on PaySim balance fields that are not fully available in current BizMoneyAI transaction creation.
-- Balance-derived features may inflate evaluation metrics.
-- Runtime transaction creation defaults missing balance fields to zero, creating a training/runtime feature mismatch.
-- Thresholds are initial defaults and need tuning.
-- The model should currently be treated as a warning support system, not an autonomous fraud decision system.
+- The current model is trained and validated on generated BizMoneyAI-style synthetic data, not on real labeled fraud data from production users.
+- `IsolationForest` identifies unusual patterns, but unusual does not always mean fraudulent.
+- Thresholds are calibrated for a practical warning workflow and will still require tuning as real usage grows.
+- Description-based urgency scoring is useful but heuristic, so it should be treated as one signal among several.
+- The model is meant to support review, not to make irreversible automated fraud decisions.
+
+## Future Work
+
+- collect anonymized real BizMoneyAI transaction history for stronger calibration
+- add feedback loops so reviewed alerts can become future labels
+- improve category-specific baselines and seasonal behavior modeling
+- evaluate whether separate user-segment models outperform a single shared detector
+- refine threshold calibration using real user review outcomes
+- expand validation against longer time windows and more realistic import scenarios
 
 ## Conclusion
 
-Model 2 is implemented and integrated successfully for the current project stage. It trains on PaySim labels using `RandomForestClassifier`, achieves very strong PaySim holdout metrics, loads safely at runtime, exposes a backend API endpoint, creates AI insights for warning and critical detections, logs unusual transaction events, and provides minimal user/admin visibility.
+The final live Model 2 implementation is a BizMoneyAI-compatible unusual transaction detector built around `IsolationForest`, synthetic business transaction data generation, runtime budget/history feature mapping, and non-blocking backend integration.
 
-However, the model should not be described as perfect or production-final. The most important limitation is that PaySim balance-derived features create strong fraud signals, while the live BizMoneyAI transaction flow does not yet provide the same level of account-balance context. Before a final production-grade report, threshold tuning and feature alignment should be addressed.
+That is the correct final description of the current system. PaySim and the older `RandomForestClassifier` belong in the history of the project, not in the description of the live runtime model.
 
 ## Report Input for ChatGPT
 
-### Model Summary
+### Project Summary
 
 - Project: BizMoneyAI
 - Model: Model 2, Fraud Detection Model
-- Purpose: detect fraudulent or unusual transactions and create non-blocking risk warnings
-- Dataset: PaySim synthetic mobile money transaction dataset
-- Algorithm: `RandomForestClassifier`
-- Task: supervised binary classification
-- Target variable: `isFraud`
-- Positive class: `1`, fraud
-- Negative class: `0`, normal
-- Model artifact: `backend/app/ml/models/fraud_detector.joblib`
+- Current implementation goal: unusual/risky transaction detection using real BizMoneyAI app fields
+- Historical prototype: PaySim-based experimentation only
+- Final live algorithm: `IsolationForest`
+- Runtime artifact: `backend/app/ml/models/fraud_detector.joblib`
 - Runtime service: `backend/app/services/fraud_detector.py`
+
+### Problem Statement
+
+BizMoneyAI needed a fraud/unusual transaction model that works with the application's real transaction fields and can run safely after transaction creation or import without blocking the user flow. The earlier PaySim-based prototype had a training/runtime feature mismatch because PaySim used balance transition features that BizMoneyAI does not collect. The current live model fixes that by using BizMoneyAI-compatible unusual transaction detection.
+
+### Why PaySim Was Replaced
+
+- PaySim was useful for early experimentation and implementation scaffolding.
+- PaySim depended on balance-derived fields not present in the live BizMoneyAI app.
+- That mismatch caused realistic suspicious business transactions to be underdetected.
+- The final live implementation therefore replaced the PaySim `RandomForestClassifier` runtime path with an `IsolationForest` anomaly detector built on BizMoneyAI-style features.
 
 ### Dataset Summary
 
-- Raw dataset path: `backend/data/raw/paysim/PS_20174392719_1491204439457_log.csv`
-- Processed dataset path: `backend/data/processed/paysim_fraud_processed.csv`
-- Rows: `6,362,620`
-- Processed feature count: `15`
-- Processed columns including target: `16`
-- Fraud rows: `8,213`
-- Normal rows: `6,354,407`
-- Fraud percentage: `0.1291%`
+- Dataset type: generated BizMoneyAI-style synthetic business transaction data
+- Dataset generation script: `backend/app/ml/anomaly/generate_bizmoneyai_fraud_data.py`
+- Generated dataset path: `backend/data/processed/bizmoneyai_unusual_transactions.csv`
+- Target column: `is_outlier`
+- Includes normal rows and generated outlier rows
 
-The PaySim dataset is a synthetic dataset designed to simulate real financial transaction behavior. It provides realistic transaction patterns and fraud scenarios suitable for training machine learning models when real user data is not available.
+### Runtime Fields Used
 
-### Features
+- amount
+- transaction type
+- category name
+- description
+- date
+- budget amount
+- budget spent before transaction
+- budget usage ratio
+- user average amount
+- category average amount
+- recent transaction count
 
-- `amount`
-- `step`
-- `oldbalanceOrg`
-- `newbalanceOrig`
-- `oldbalanceDest`
-- `newbalanceDest`
-- `orig_balance_delta`
-- `dest_balance_delta`
-- `orig_error`
-- `dest_error`
-- `type_CASH_IN`
-- `type_CASH_OUT`
-- `type_DEBIT`
-- `type_PAYMENT`
-- `type_TRANSFER`
+### Engineered Features
 
-Feature engineering:
+- `log_amount`
+- `is_expense`
+- `is_income`
+- `month`
+- `day_of_month`
+- `day_of_week`
+- `has_budget`
+- `budget_amount_log`
+- `budget_usage_ratio`
+- `amount_to_budget_ratio`
+- `projected_budget_usage_ratio`
+- `budget_overspend_ratio`
+- `amount_to_user_avg_ratio`
+- `amount_to_category_avg_ratio`
+- `recent_transaction_count_30d`
+- `description_urgency_score`
+- `category_risk_weight`
 
-- `orig_balance_delta = oldbalanceOrg - newbalanceOrig`
-- `dest_balance_delta = newbalanceDest - oldbalanceDest`
-- `orig_error = oldbalanceOrg - amount - newbalanceOrig`
-- `dest_error = oldbalanceDest + amount - newbalanceDest`
-- transaction type was encoded using one-hot encoding
+### Algorithm Summary
+
+- Algorithm: `IsolationForest`
+- Training style: anomaly detection trained on normal BizMoneyAI-style transactions
+- Outlier labels are used for threshold calibration and validation, not as the core supervised training target
+- Response shape remains `is_unusual`, `fraud_probability`, `risk_level`, `model_name`
+- `fraud_probability` is a normalized anomaly risk score
 
 ### Training Configuration
 
-- Model: `RandomForestClassifier`
-- `n_estimators=100`
-- `max_depth=None`
-- `class_weight="balanced"`
+- `n_estimators=300`
+- `contamination=0.04`
+- `max_samples="auto"`
 - `random_state=42`
 - `n_jobs=-1`
-- train/test split: stratified
-- test size: `0.2`
-- threshold: `0.5`
+- test split: `0.2`
+- warning threshold: `0.50`
+- critical threshold: `0.80`
 
-### Metrics
+### Validation Metrics
 
-- Accuracy: `0.999997`
-- Precision: `1.000000`
-- Recall: `0.997565`
-- F1-score: `0.998781`
-- ROC-AUC: `0.998782`
-- Confusion matrix: `[[1270881, 0], [4, 1639]]`
-- False positives: `0`
-- False negatives: `4`
-
-Train metrics:
-
-- Accuracy: `1.000000`
-- Precision: `1.000000`
+- Precision: `0.950370`
 - Recall: `1.000000`
-- F1-score: `1.000000`
-- ROC-AUC: `1.000000`
-
-Validation interpretation:
-
-- Accuracy alone is misleading because fraud is extremely rare.
-- Precision, recall, F1-score, ROC-AUC, false positives, and false negatives are more important.
-- Underfitting is not suspected.
-- Classic overfitting is not strongly indicated by train/test gap.
-- Metrics may be inflated because PaySim includes strong balance-derived fraud signals.
+- F1-score: `0.974553`
+- Confusion matrix: `[[4953, 47], [0, 900]]`
+- Runtime validation example: `45000` Marketing overspend returns `critical`
 
 ### Backend Integration Summary
 
 - API endpoint: `POST /ml/detect-unusual-transaction`
-- Request fields: amount, transaction_type, step, oldbalanceOrg, newbalanceOrig, oldbalanceDest, newbalanceDest
-- Response fields: is_unusual, fraud_probability, risk_level, model_name
-- Warning threshold: probability `>= 0.50`
-- Critical threshold: probability `>= 0.80`
-- Service loads model once and exposes `is_ready()` and `predict(payload)`
-- Missing features default safely
-- Unknown transaction types are handled safely
-- Missing or invalid model returns a safe normal response
+- transaction creation runs Model 2 after the transaction is flushed
+- CSV/file import also runs Model 2
+- model failure does not block transaction creation
+- warning and critical detections create `AIInsight` records with `rule_id = ml_unusual_transaction`
+- warning and critical detections also create `system_log` entries with event type `unusual_transaction_detected`
 
-### System Behavior Summary
+### Frontend/Admin Visibility Summary
 
-- Model runs through direct ML API calls.
-- Model also runs after manual transaction creation.
-- Transaction creation is never blocked by ML failure.
-- Normal result: no AIInsight, no unusual system log.
-- Warning result: creates warning AIInsight and `unusual_transaction_detected` system log.
-- Critical result: creates critical AIInsight and `unusual_transaction_detected` system log.
-- AIInsight rule id: `ml_unusual_transaction`
-
-### Admin Integration Summary
-
-- Admin metrics are derived from existing `AIInsight` rows with `rule_id=ml_unusual_transaction`.
-- Admin dashboard fields:
-  - `total_unusual_transactions`
-  - `unusual_warning_count`
-  - `unusual_critical_count`
-  - `recent_unusual_transaction_insights`
-- Admin logs include `unusual_transaction_detected` as a filter option.
-
-### Frontend Integration Summary
-
-- User transaction page calls the unusual transaction endpoint after save.
-- Warning/critical results show a small banner.
-- The banner is non-blocking.
-- Normal results show no extra UI.
-- Admin dashboard displays unusual transaction metrics and recent unusual transaction insights.
-
-### Advantages
-
-- Real supervised classifier trained on labeled fraud data.
-- Handles class imbalance.
-- Strong PaySim evaluation metrics.
-- Safe backend fallback behavior.
-- Non-blocking transaction flow.
-- Integrated with AI insights, system logs, admin analytics, and frontend warnings.
-- No database schema change required.
+- user transactions page shows stored unusual transaction badges
+- user insights page shows unusual transaction insights
+- admin dashboard shows unusual transaction counts and recent unusual transaction insights
+- admin transactions page shows transaction risk badges
+- admin logs can filter `unusual_transaction_detected`
 
 ### Limitations
 
-- PaySim is synthetic.
-- Balance-derived features may make fraud detection unrealistically easy.
-- Runtime BizMoneyAI transaction data lacks full PaySim-style balance fields.
-- Current thresholds need tuning.
-- Current implementation is best viewed as a project-stage warning system, not a final autonomous fraud prevention system.
+- current training data is synthetic
+- unusual transaction detection is not the same as confirmed fraud classification
+- thresholds still need ongoing calibration
+- the model should support review, not replace human judgment
 
-### Suggested Final Report Position
+### Future Work
 
-The final academic report should state that the Fraud Detection Model works successfully as an integrated supervised ML component, but its unusually high metrics must be interpreted carefully due to PaySim feature leakage risk and synthetic-data limitations. The model is suitable for current non-blocking risk alerts, while future work should focus on feature alignment, threshold tuning, and validation against real transaction behavior.
+- collect real labeled review outcomes
+- improve calibration and segmentation
+- refine temporal and category baselines
+- validate on broader real-world scenarios
+
+### Suggested Final Position
+
+The final report should state that Model 2 is now a BizMoneyAI-compatible unusual transaction detection system using `IsolationForest`, synthetic business transaction generation, and live runtime feature mapping based on actual SaaS transaction fields. PaySim and the earlier Random Forest approach should be presented only as historical experimentation, not as the final runtime implementation.
