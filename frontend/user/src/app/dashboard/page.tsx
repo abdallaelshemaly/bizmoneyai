@@ -228,7 +228,6 @@ export default function DashboardPage() {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="font-semibold text-ink">Predicted Next-Month Spending</h2>
-              <p className="mt-1 text-sm text-slate-500">A forward look based on your recent clean spending history.</p>
             </div>
             <span className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${confidenceTone}`}>
               {forecastLoading ? "Loading" : forecast?.confidence_level ?? "unavailable"}
