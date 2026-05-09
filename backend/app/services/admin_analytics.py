@@ -19,6 +19,7 @@ from app.schemas.admin_panel import (
     AdminActiveUser,
     AdminActivityTrend,
     AdminAnalyticsBudgetsOut,
+    AdminForecastRiskInsight,
     AdminAnalyticsInsightsOut,
     AdminAnalyticsOverviewOut,
     AdminAnalyticsTransactionsOut,
@@ -35,6 +36,7 @@ from app.services.budget_metrics import budget_status
 
 CACHE_TTL_SECONDS = 30
 UNUSUAL_TRANSACTION_RULE_ID = "ml_unusual_transaction"
+FORECAST_RISK_RULE_ID = "ml_spending_forecast_risk"
 
 _T = TypeVar("_T")
 _analytics_cache: dict[tuple[str, int | None, int | None], tuple[float, object]] = {}
@@ -165,12 +167,53 @@ def _serialize_unusual_transaction_insights(rows) -> list[AdminUnusualTransactio
     return serialized
 
 
+def _serialize_forecast_risk_insights(rows) -> list[AdminForecastRiskInsight]:
+    serialized: list[AdminForecastRiskInsight] = []
+    for insight, user_name, user_email in rows:
+        metadata = insight.metadata_json or {}
+        categories = metadata.get("top_reduction_categories") or []
+        serialized.append(
+            AdminForecastRiskInsight(
+                insight_id=insight.insight_id,
+                user_id=insight.user_id,
+                user_name=user_name,
+                user_email=user_email,
+                title=insight.title,
+                message=insight.message,
+                severity=insight.severity,
+                period_start=insight.period_start,
+                period_end=insight.period_end,
+                created_at=insight.created_at,
+                predicted_next_month_expense=_optional_float(metadata.get("predicted_next_month_expense")),
+                budget_total=_optional_float(metadata.get("budget_total")),
+                forecast_vs_budget=_optional_float(metadata.get("forecast_vs_budget")),
+                confidence_level=str(metadata.get("confidence_level")) if metadata.get("confidence_level") is not None else None,
+                top_reduction_categories=[str(category) for category in categories if str(category).strip()],
+            )
+        )
+    return serialized
+
+
 def _unusual_transaction_insights_query(db: Session, user_id: int | None = None):
     query = (
         db.query(AIInsight, User.name, User.email)
         .join(User, User.user_id == AIInsight.user_id)
         .filter(
             AIInsight.rule_id == UNUSUAL_TRANSACTION_RULE_ID,
+            AIInsight.severity.in_(["warning", "critical"]),
+        )
+    )
+    if user_id is not None:
+        query = query.filter(AIInsight.user_id == user_id)
+    return query
+
+
+def _forecast_risk_insights_query(db: Session, user_id: int | None = None):
+    query = (
+        db.query(AIInsight, User.name, User.email)
+        .join(User, User.user_id == AIInsight.user_id)
+        .filter(
+            AIInsight.rule_id == FORECAST_RISK_RULE_ID,
             AIInsight.severity.in_(["warning", "critical"]),
         )
     )
@@ -447,6 +490,34 @@ def get_admin_analytics_insights(
             .all()
         )
 
+        forecast_summary_query = (
+            db.query(AIInsight.severity, func.count(AIInsight.insight_id))
+            .filter(
+                AIInsight.rule_id == FORECAST_RISK_RULE_ID,
+                AIInsight.severity.in_(["warning", "critical"]),
+            )
+        )
+        if user_id is not None:
+            forecast_summary_query = forecast_summary_query.filter(AIInsight.user_id == user_id)
+
+        forecast_counts = {
+            severity: int(count or 0)
+            for severity, count in forecast_summary_query.group_by(AIInsight.severity).all()
+        }
+        users_with_forecast_risk_query = db.query(func.count(func.distinct(AIInsight.user_id))).filter(
+            AIInsight.rule_id == FORECAST_RISK_RULE_ID,
+            AIInsight.severity.in_(["warning", "critical"]),
+        )
+        if user_id is not None:
+            users_with_forecast_risk_query = users_with_forecast_risk_query.filter(AIInsight.user_id == user_id)
+        users_with_forecast_risk = int(users_with_forecast_risk_query.scalar() or 0)
+        recent_forecast_risk_insights = _serialize_forecast_risk_insights(
+            _forecast_risk_insights_query(db, user_id=user_id)
+            .order_by(AIInsight.created_at.desc(), AIInsight.insight_id.desc())
+            .limit(5)
+            .all()
+        )
+
         return AdminAnalyticsInsightsOut(
             insight_severity_distribution=[
                 AdminCountByLabel(label=label, count=int(count or 0))
@@ -461,6 +532,11 @@ def get_admin_analytics_insights(
             unusual_warning_count=unusual_counts.get("warning", 0),
             unusual_critical_count=unusual_counts.get("critical", 0),
             recent_unusual_transaction_insights=recent_unusual_transaction_insights,
+            forecast_risk_insights_count=sum(forecast_counts.values()),
+            forecast_risk_warning_count=forecast_counts.get("warning", 0),
+            forecast_risk_critical_count=forecast_counts.get("critical", 0),
+            users_with_forecast_risk=users_with_forecast_risk,
+            recent_forecast_risk_insights=recent_forecast_risk_insights,
         )
 
     return _with_ttl_cache("insights", user_id=user_id, days=None, builder=builder)

@@ -13,11 +13,12 @@ from app.schemas.ml import (
     DetectUnusualTransactionResponse,
     PredictCategoryRequest,
     PredictCategoryResponse,
+    SpendingForecastResponse,
 )
 from app.services.category_classifier import classifier
 from app.services.category_classifier import normalize_category_name
 from app.services.embeddings import cosine_similarity, embed_texts
-from app.services import fraud_detector
+from app.services import fraud_detector, spending_forecaster
 from app.services.system_log import log_system_event
 
 router = APIRouter(prefix="/ml", tags=["ml"])
@@ -180,3 +181,35 @@ def detect_unusual_transaction(
             "model_name": None,
         }
     return DetectUnusualTransactionResponse(**result)
+
+
+@router.get("/forecast-spending", response_model=SpendingForecastResponse)
+def forecast_spending(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        result = spending_forecaster.forecast_for_user(db, current_user.user_id)
+    except Exception:
+        logger.exception("Spending forecast service failed")
+        result = {
+            "predicted_next_month_expense": None,
+            "confidence_level": "unavailable",
+            "model_name": "BizMoneyAI Model 3 Spending Forecaster",
+            "months_used": 0,
+            "current_month_expense": 0.0,
+            "previous_month_expense": 0.0,
+            "rolling_3_month_expense_avg": 0.0,
+            "budget_total": 0.0,
+            "forecast_vs_budget": None,
+            "top_reduction_categories": [],
+            "recommendation": "Not enough clean spending history is available to forecast next month yet.",
+        }
+    insight_creator = getattr(spending_forecaster, "maybe_create_forecast_risk_insight", None)
+    if callable(insight_creator):
+        try:
+            insight_creator(db, user_id=current_user.user_id, forecast=result)
+        except Exception:
+            db.rollback()
+            logger.exception("Failed to create spending forecast risk insight")
+    return SpendingForecastResponse(**result)

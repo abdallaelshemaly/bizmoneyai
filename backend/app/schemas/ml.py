@@ -1,4 +1,5 @@
 from datetime import date as dt_date
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -37,3 +38,17 @@ class DetectUnusualTransactionResponse(BaseModel):
     fraud_probability: float
     risk_level: str
     model_name: str | None = None
+
+
+class SpendingForecastResponse(BaseModel):
+    predicted_next_month_expense: float | None
+    confidence_level: Literal["low", "medium", "high", "unavailable"]
+    model_name: str
+    months_used: int
+    current_month_expense: float
+    previous_month_expense: float
+    rolling_3_month_expense_avg: float
+    budget_total: float
+    forecast_vs_budget: float | None
+    top_reduction_categories: list[str]
+    recommendation: str

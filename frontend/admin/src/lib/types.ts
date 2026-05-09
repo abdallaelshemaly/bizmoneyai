@@ -91,6 +91,24 @@ export type AdminUnusualTransactionInsight = {
   fraud_probability: number | null;
 };
 
+export type AdminForecastRiskInsight = {
+  insight_id: number;
+  user_id: number;
+  user_name: string;
+  user_email: string;
+  title: string;
+  message: string;
+  severity: "warning" | "critical";
+  period_start: string;
+  period_end: string;
+  created_at: string;
+  predicted_next_month_expense: number | null;
+  budget_total: number | null;
+  forecast_vs_budget: number | null;
+  confidence_level: string | null;
+  top_reduction_categories: string[];
+};
+
 export type AdminDashboard = {
   total_users: number;
   total_transactions: number;
@@ -109,6 +127,11 @@ export type AdminDashboard = {
   unusual_warning_count: number;
   unusual_critical_count: number;
   recent_unusual_transaction_insights: AdminUnusualTransactionInsight[];
+  forecast_risk_insights_count: number;
+  forecast_risk_warning_count: number;
+  forecast_risk_critical_count: number;
+  users_with_forecast_risk: number;
+  recent_forecast_risk_insights: AdminForecastRiskInsight[];
   recent_logs: AdminLogRow[];
 };
 
@@ -126,7 +149,16 @@ export type AdminAnalyticsUsers = Pick<AdminDashboard, "most_active_users">;
 
 export type AdminAnalyticsInsights = Pick<
   AdminDashboard,
-  "insight_severity_distribution" | "total_unusual_transactions" | "unusual_warning_count" | "unusual_critical_count" | "recent_unusual_transaction_insights"
+  | "insight_severity_distribution"
+  | "total_unusual_transactions"
+  | "unusual_warning_count"
+  | "unusual_critical_count"
+  | "recent_unusual_transaction_insights"
+  | "forecast_risk_insights_count"
+  | "forecast_risk_warning_count"
+  | "forecast_risk_critical_count"
+  | "users_with_forecast_risk"
+  | "recent_forecast_risk_insights"
 >;
 
 export type AdminAnalyticsBudgets = Pick<

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import axios from "axios";
 
 import CategoryBreakdownChart from "@/components/CategoryBreakdownChart";
 import MonthlyTrendChart from "@/components/MonthlyTrendChart";
@@ -12,6 +13,19 @@ import api from "@/lib/api";
 
 type MonthlyTrend = { month: string; income: number; expense: number };
 type CategoryBreakdown = { category_name: string; total: number };
+type SpendingForecast = {
+  predicted_next_month_expense: number | null;
+  confidence_level: "low" | "medium" | "high" | "unavailable";
+  model_name: string;
+  months_used: number;
+  current_month_expense: number;
+  previous_month_expense: number;
+  rolling_3_month_expense_avg: number;
+  budget_total: number;
+  forecast_vs_budget: number | null;
+  top_reduction_categories: string[];
+  recommendation: string;
+};
 type Summary = {
   total_income: number;
   total_expense: number;
@@ -40,10 +54,14 @@ const HEALTH = {
   at_risk: { card: "border-red-200 bg-red-50", text: "text-red-800", badge: "At Risk" },
 };
 const DEFAULT_MONTH = new Date().toISOString().slice(0, 7);
+const FORECAST_UNAVAILABLE_MESSAGE = "Spending forecast is unavailable until more transaction history is available.";
 
 export default function DashboardPage() {
   const { user, loading } = useAuth();
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [forecast, setForecast] = useState<SpendingForecast | null>(null);
+  const [forecastLoading, setForecastLoading] = useState(false);
+  const [forecastError, setForecastError] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState(DEFAULT_MONTH);
 
   useEffect(() => {
@@ -52,6 +70,20 @@ export default function DashboardPage() {
       .get<Summary>("/dashboard/summary", { params: { month: `${selectedMonth}-01` } })
       .then((r) => setSummary(r.data));
   }, [user, selectedMonth]);
+
+  useEffect(() => {
+    if (!user) return;
+    setForecastLoading(true);
+    setForecastError(null);
+    void api
+      .get<SpendingForecast>("/ml/forecast-spending")
+      .then((r) => setForecast(r.data))
+      .catch((error) => {
+        setForecast(null);
+        setForecastError(axios.isAxiosError(error) ? error.message : "Unable to load spending forecast.");
+      })
+      .finally(() => setForecastLoading(false));
+  }, [user]);
 
   if (loading) {
     return <div className="flex min-h-screen items-center justify-center text-slate-400">Loading...</div>;
@@ -62,6 +94,30 @@ export default function DashboardPage() {
   const bal = summary?.balance ?? 0;
   const health = HEALTH[summary?.health_status ?? "healthy"];
   const budgetRemaining = summary?.budget_remaining ?? 0;
+  const forecastUnavailable =
+    !forecast || forecast.confidence_level === "unavailable" || forecast.predicted_next_month_expense === null;
+  const forecastOverBudget = !forecastUnavailable && (forecast.forecast_vs_budget ?? 0) > 0;
+  const forecastBudgetDelta = forecast?.forecast_vs_budget ?? null;
+  const forecastMessage = forecastUnavailable
+    ? FORECAST_UNAVAILABLE_MESSAGE
+    : forecastOverBudget
+      ? `Your forecasted spending for next month may exceed your budget. Consider reducing ${
+          forecast.top_reduction_categories[0] ?? "your highest-spending"
+        } and ${forecast.top_reduction_categories[1] ?? "other high-spending"} expenses.`
+      : "Your forecasted spending appears to be within your current budget. Continue monitoring your highest spending categories.";
+  const forecastTone = forecastUnavailable
+    ? "border-slate-200 bg-slate-50 text-slate-700"
+    : forecastOverBudget
+      ? "border-amber-200 bg-amber-50 text-amber-900"
+      : "border-green-200 bg-green-50 text-green-900";
+  const confidenceTone =
+    forecast?.confidence_level === "high"
+      ? "bg-green-100 text-green-800"
+      : forecast?.confidence_level === "medium"
+        ? "bg-blue-100 text-blue-800"
+        : forecast?.confidence_level === "low"
+          ? "bg-amber-100 text-amber-800"
+          : "bg-slate-200 text-slate-700";
 
   return (
     <>
@@ -165,6 +221,69 @@ export default function DashboardPage() {
             <p className="mt-4 text-sm text-slate-600">
               {summary.over_budget_count} budget {summary.over_budget_count === 1 ? "category is" : "categories are"} over plan.
             </p>
+          )}
+        </div>
+
+        <div className="rounded-xl bg-white p-5 shadow">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-semibold text-ink">Predicted Next-Month Spending</h2>
+              <p className="mt-1 text-sm text-slate-500">A forward look based on your recent clean spending history.</p>
+            </div>
+            <span className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${confidenceTone}`}>
+              {forecastLoading ? "Loading" : forecast?.confidence_level ?? "unavailable"}
+            </span>
+          </div>
+
+          {forecastLoading ? (
+            <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+              Loading spending forecast...
+            </div>
+          ) : (
+            <>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Predicted Spend</p>
+                  <p className="mt-1 text-2xl font-bold text-ink">
+                    {forecastUnavailable ? "Unavailable" : `$${fmt(forecast?.predicted_next_month_expense ?? 0)}`}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Current Month</p>
+                  <p className="mt-1 text-xl font-semibold text-ink">${fmt(forecast?.current_month_expense ?? 0)}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Budget Total</p>
+                  <p className="mt-1 text-xl font-semibold text-ink">${fmt(forecast?.budget_total ?? 0)}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Forecast vs Budget</p>
+                  <p
+                    className={`mt-1 text-xl font-semibold ${
+                      (forecastBudgetDelta ?? 0) > 0 ? "text-amber-700" : "text-green-700"
+                    }`}
+                  >
+                    {forecastBudgetDelta === null
+                      ? "Unavailable"
+                      : `${forecastBudgetDelta >= 0 ? "+" : "-"}$${fmt(Math.abs(forecastBudgetDelta))}`}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-slate-400">3-Month Average</p>
+                  <p className="mt-1 text-xl font-semibold text-ink">${fmt(forecast?.rolling_3_month_expense_avg ?? 0)}</p>
+                </div>
+              </div>
+
+              <div className={`mt-4 rounded-lg border p-4 ${forecastTone}`}>
+                <p className="text-sm font-medium">{forecastMessage}</p>
+                {!!forecast?.top_reduction_categories.length && !forecastUnavailable && (
+                  <p className="mt-2 text-xs text-current/80">
+                    Highest spending categories: {forecast.top_reduction_categories.join(", ")}
+                  </p>
+                )}
+                {forecastError && <p className="mt-2 text-xs text-current/80">Forecast service note: {forecastError}</p>}
+              </div>
+            </>
           )}
         </div>
 

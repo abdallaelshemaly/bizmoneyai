@@ -231,7 +231,7 @@ export default function AdminDashboardPage() {
           </div>
         ) : (
           <div className={`space-y-6 transition-opacity ${isRefreshing ? "opacity-80" : "opacity-100"}`}>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-9">
               <AdminMetricCard
                 label={selectedUser ? "Scoped User" : "Total Users"}
                 value={formatCompactNumber(data.total_users)}
@@ -257,6 +257,18 @@ export default function AdminDashboardPage() {
                 label="Unusual Tx"
                 value={formatCompactNumber(data.total_unusual_transactions)}
                 tone={data.unusual_critical_count > 0 ? "danger" : data.unusual_warning_count > 0 ? "warning" : "default"}
+              />
+              <AdminMetricCard
+                label="Forecast Risk Insights"
+                value={formatCompactNumber(data.forecast_risk_insights_count)}
+                helper={`${formatCompactNumber(data.users_with_forecast_risk)} users impacted`}
+                tone={
+                  data.forecast_risk_critical_count > 0
+                    ? "danger"
+                    : data.forecast_risk_warning_count > 0
+                      ? "warning"
+                      : "default"
+                }
               />
               <AdminMetricCard
                 label="Over Budget"
@@ -325,6 +337,74 @@ export default function AdminDashboardPage() {
                 ) : (
                   <p className="text-sm text-slate-400">
                     {selectedUser ? "No unusual transaction insights for this user yet." : "No unusual transaction insights have been recorded yet."}
+                  </p>
+                )}
+              </div>
+            </AdminPanel>
+
+            <AdminPanel
+              title="Forecast Risk Monitoring"
+              description={
+                selectedUser
+                  ? "Recent forecast-based budget risk insights recorded for the selected user."
+                  : "Recent persisted spending forecast risk insights across users."
+              }
+            >
+              <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
+                <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+                  <div className="rounded-xl bg-amber-50 px-4 py-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">Warnings</p>
+                    <p className="mt-1 text-2xl font-semibold text-amber-800">{formatCompactNumber(data.forecast_risk_warning_count)}</p>
+                  </div>
+                  <div className="rounded-xl bg-rose-50 px-4 py-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-rose-700">Critical</p>
+                    <p className="mt-1 text-2xl font-semibold text-rose-800">{formatCompactNumber(data.forecast_risk_critical_count)}</p>
+                  </div>
+                  <div className="rounded-xl bg-sky-50 px-4 py-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Users</p>
+                    <p className="mt-1 text-2xl font-semibold text-sky-800">{formatCompactNumber(data.users_with_forecast_risk)}</p>
+                  </div>
+                </div>
+                {data.recent_forecast_risk_insights.length > 0 ? (
+                  <div className="space-y-3">
+                    {data.recent_forecast_risk_insights.map((insight) => (
+                      <div key={insight.insight_id} className="rounded-xl bg-slate-50 px-4 py-3">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="font-medium text-slate-900">{insight.title}</p>
+                            <p className="text-sm text-slate-500">{insight.message}</p>
+                            <p className="mt-1 text-xs text-slate-400">
+                              {insight.user_name} | {formatDateTime(insight.created_at)}
+                            </p>
+                            {insight.top_reduction_categories.length > 0 && (
+                              <p className="mt-2 text-xs text-slate-500">
+                                Focus categories: {insight.top_reduction_categories.join(", ")}
+                              </p>
+                            )}
+                          </div>
+                          <div className="text-right">
+                            <span
+                              className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                insight.severity === "critical"
+                                  ? "bg-rose-100 text-rose-700"
+                                  : "bg-amber-100 text-amber-700"
+                              }`}
+                            >
+                              {insight.severity}
+                            </span>
+                            {insight.forecast_vs_budget !== null && (
+                              <p className="mt-2 text-xs text-slate-500">
+                                {formatCurrency(insight.forecast_vs_budget)} over budget
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-400">
+                    {selectedUser ? "No forecast risk insights for this user yet." : "No forecast risk insights have been recorded yet."}
                   </p>
                 )}
               </div>

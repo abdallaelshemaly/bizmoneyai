@@ -81,6 +81,24 @@ class AdminUnusualTransactionInsight(BaseModel):
     fraud_probability: float | None = None
 
 
+class AdminForecastRiskInsight(BaseModel):
+    insight_id: int
+    user_id: int
+    user_name: str
+    user_email: EmailStr
+    title: str
+    message: str
+    severity: Literal["warning", "critical"]
+    period_start: date
+    period_end: date
+    created_at: datetime
+    predicted_next_month_expense: float | None = None
+    budget_total: float | None = None
+    forecast_vs_budget: float | None = None
+    confidence_level: str | None = None
+    top_reduction_categories: list[str] = []
+
+
 class AdminPaginationMeta(BaseModel):
     total: int
     limit: int
@@ -107,6 +125,11 @@ class AdminDashboardOut(BaseModel):
     unusual_warning_count: int
     unusual_critical_count: int
     recent_unusual_transaction_insights: list[AdminUnusualTransactionInsight]
+    forecast_risk_insights_count: int
+    forecast_risk_warning_count: int
+    forecast_risk_critical_count: int
+    users_with_forecast_risk: int
+    recent_forecast_risk_insights: list[AdminForecastRiskInsight]
     recent_logs: list[AdminLogRow]
 
 
@@ -135,6 +158,11 @@ class AdminAnalyticsInsightsOut(BaseModel):
     unusual_warning_count: int
     unusual_critical_count: int
     recent_unusual_transaction_insights: list[AdminUnusualTransactionInsight]
+    forecast_risk_insights_count: int
+    forecast_risk_warning_count: int
+    forecast_risk_critical_count: int
+    users_with_forecast_risk: int
+    recent_forecast_risk_insights: list[AdminForecastRiskInsight]
 
 
 class AdminAnalyticsBudgetsOut(BaseModel):
