@@ -127,6 +127,24 @@ def test_admin_read_endpoints_return_analytics(db_session, monkeypatch):
             "fraud_probability": 0.91,
         },
     )
+    forecast_risk_insight = AIInsight(
+        user_id=user_one.user_id,
+        rule_id="ml_spending_forecast_risk",
+        title="Forecast Risk Detected",
+        message="Your forecasted spending for next month may exceed your budget. Consider reducing Marketing and Software expenses.",
+        severity="warning",
+        period_start=date(2026, 5, 1),
+        period_end=date(2026, 5, 31),
+        metadata_json={
+            "scope_key": "forecast_month:2026-05-01",
+            "predicted_next_month_expense": 900.0,
+            "budget_total": 500.0,
+            "forecast_vs_budget": 400.0,
+            "confidence_level": "medium",
+            "top_reduction_categories": ["Marketing", "Software"],
+            "source": "spending_forecaster",
+        },
+    )
     user_log = SystemLog(
         user_id=user_one.user_id,
         event_type="user_login",
@@ -147,10 +165,12 @@ def test_admin_read_endpoints_return_analytics(db_session, monkeypatch):
         insight,
         secondary_insight,
         unusual_insight,
+        forecast_risk_insight,
         user_log,
     ):
         record.created_at = datetime(2026, 4, 5, 12, 0, 0)
-    db_session.add_all([tx, secondary_tx, bonus_tx, budget, secondary_budget, insight, secondary_insight, unusual_insight, user_log])
+    forecast_risk_insight.created_at = datetime(2026, 5, 5, 12, 0, 0)
+    db_session.add_all([tx, secondary_tx, bonus_tx, budget, secondary_budget, insight, secondary_insight, unusual_insight, forecast_risk_insight, user_log])
     db_session.commit()
 
     app = create_test_app()
@@ -171,10 +191,16 @@ def test_admin_read_endpoints_return_analytics(db_session, monkeypatch):
         assert dashboard_body["total_transactions"] == 3
         assert dashboard_body["total_categories"] == 2
         assert dashboard_body["total_budgets"] == 2
-        assert dashboard_body["total_ai_insights"] == 3
+        assert dashboard_body["total_ai_insights"] == 4
         assert dashboard_body["total_unusual_transactions"] == 1
         assert dashboard_body["unusual_warning_count"] == 0
         assert dashboard_body["unusual_critical_count"] == 1
+        assert dashboard_body["forecast_risk_insights_count"] == 1
+        assert dashboard_body["forecast_risk_warning_count"] == 1
+        assert dashboard_body["forecast_risk_critical_count"] == 0
+        assert dashboard_body["users_with_forecast_risk"] == 1
+        assert dashboard_body["recent_forecast_risk_insights"][0]["title"] == "Forecast Risk Detected"
+        assert dashboard_body["recent_forecast_risk_insights"][0]["top_reduction_categories"] == ["Marketing", "Software"]
         assert dashboard_body["recent_unusual_transaction_insights"][0]["severity"] == "critical"
         assert dashboard_body["recent_unusual_transaction_insights"][0]["transaction_id"] == 1
         assert dashboard_body["recent_unusual_transaction_insights"][0]["fraud_probability"] == 0.91
@@ -194,6 +220,7 @@ def test_admin_read_endpoints_return_analytics(db_session, monkeypatch):
         overview_body = overview_response.json()
         assert overview_body["total_users"] == 2
         assert overview_body["total_transactions"] == 3
+        assert overview_body["total_ai_insights"] == 4
         assert overview_body["recent_logs"][0]["event_type"] == "admin_login"
 
         transactions_analytics_response = client.get("/admin/analytics/transactions")
@@ -213,6 +240,11 @@ def test_admin_read_endpoints_return_analytics(db_session, monkeypatch):
         assert insights_analytics_body["total_unusual_transactions"] == 1
         assert insights_analytics_body["unusual_warning_count"] == 0
         assert insights_analytics_body["unusual_critical_count"] == 1
+        assert insights_analytics_body["forecast_risk_insights_count"] == 1
+        assert insights_analytics_body["forecast_risk_warning_count"] == 1
+        assert insights_analytics_body["forecast_risk_critical_count"] == 0
+        assert insights_analytics_body["users_with_forecast_risk"] == 1
+        assert insights_analytics_body["recent_forecast_risk_insights"][0]["budget_total"] == 500.0
         assert insights_analytics_body["recent_unusual_transaction_insights"][0]["title"] == "Critical Unusual Transaction Detected"
 
         budgets_analytics_response = client.get("/admin/analytics/budgets")
@@ -229,13 +261,17 @@ def test_admin_read_endpoints_return_analytics(db_session, monkeypatch):
         assert scoped_dashboard_body["total_transactions"] == 2
         assert scoped_dashboard_body["total_categories"] == 1
         assert scoped_dashboard_body["total_budgets"] == 1
-        assert scoped_dashboard_body["total_ai_insights"] == 2
+        assert scoped_dashboard_body["total_ai_insights"] == 3
         assert scoped_dashboard_body["total_unusual_transactions"] == 1
         assert scoped_dashboard_body["unusual_warning_count"] == 0
         assert scoped_dashboard_body["unusual_critical_count"] == 1
+        assert scoped_dashboard_body["forecast_risk_insights_count"] == 1
+        assert scoped_dashboard_body["forecast_risk_warning_count"] == 1
+        assert scoped_dashboard_body["forecast_risk_critical_count"] == 0
+        assert scoped_dashboard_body["users_with_forecast_risk"] == 1
         assert scoped_dashboard_body["insight_severity_distribution"] == [
+            {"label": "warning", "count": 2},
             {"label": "critical", "count": 1},
-            {"label": "warning", "count": 1},
         ]
         assert scoped_dashboard_body["spend_distribution"] == [
             {"category_name": "Food", "total_amount": 80.0, "transactions_count": 1}
@@ -275,7 +311,7 @@ def test_admin_read_endpoints_return_analytics(db_session, monkeypatch):
         assert users_body["users"][0]["transactions_count"] == 2
         assert users_body["users"][0]["categories_count"] == 1
         assert users_body["users"][0]["budgets_count"] == 1
-        assert users_body["users"][0]["insights_count"] == 2
+        assert users_body["users"][0]["insights_count"] == 3
         assert users_body["users"][0]["last_activity"] is not None
         assert users_body["summary"]["active_count"] == 1
 
