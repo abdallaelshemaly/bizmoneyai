@@ -205,4 +205,11 @@ def forecast_spending(
             "top_reduction_categories": [],
             "recommendation": "Not enough clean spending history is available to forecast next month yet.",
         }
+    insight_creator = getattr(spending_forecaster, "maybe_create_forecast_risk_insight", None)
+    if callable(insight_creator):
+        try:
+            insight_creator(db, user_id=current_user.user_id, forecast=result)
+        except Exception:
+            db.rollback()
+            logger.exception("Failed to create spending forecast risk insight")
     return SpendingForecastResponse(**result)

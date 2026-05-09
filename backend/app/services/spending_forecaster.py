@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from calendar import monthrange
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date
@@ -24,6 +25,11 @@ DEFAULT_MODEL_NAME = "BizMoneyAI Model 3 Spending Forecaster"
 MODEL_FAMILY = "bizmoneyai_spending_forecast"
 UNUSUAL_TRANSACTION_RULE_ID = "ml_unusual_transaction"
 UNUSUAL_TRANSACTION_SEVERITIES = ("warning", "critical")
+FORECAST_RISK_RULE_ID = "ml_spending_forecast_risk"
+FORECAST_RISK_SOURCE = "spending_forecaster"
+MEANINGFUL_OVER_BUDGET_FLOOR = 100.0
+MEANINGFUL_OVER_BUDGET_RATIO = 0.10
+CRITICAL_BUDGET_RATIO = 1.50
 
 ConfidenceLevel = Literal["low", "medium", "high", "unavailable"]
 
@@ -94,6 +100,11 @@ def _shift_month(value: date, offset: int) -> date:
     return date(month_index // 12, month_index % 12 + 1, 1)
 
 
+def _month_end(value: date) -> date:
+    month_start = normalize_month(value)
+    return date(month_start.year, month_start.month, monthrange(month_start.year, month_start.month)[1])
+
+
 def _optional_int(value: Any) -> int | None:
     try:
         return int(value)
@@ -107,6 +118,13 @@ def _safe_prediction_value(value: Any) -> float:
     except (TypeError, ValueError):
         return 0.0
     return max(0.0, number)
+
+
+def _optional_float(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _unavailable_response(
@@ -133,18 +151,125 @@ def _unavailable_response(
     }
 
 
+def _forecast_risk_message(top_categories: list[str]) -> str:
+    first = top_categories[0] if top_categories else "your highest-spending"
+    second = top_categories[1] if len(top_categories) > 1 else "other high-spending"
+    return (
+        "Your forecasted spending for next month may exceed your budget. "
+        f"Consider reducing {first} and {second} expenses."
+    )
+
+
 def _recommendation(predicted: float, budget_total: float, top_categories: list[str]) -> str:
     if budget_total > 0 and predicted > budget_total:
-        first = top_categories[0] if top_categories else "your highest-spending"
-        second = top_categories[1] if len(top_categories) > 1 else "other high-spending"
-        return (
-            "Your forecasted spending for next month may exceed your budget. "
-            f"Consider reducing {first} and {second} expenses."
-        )
+        return _forecast_risk_message(top_categories)
     return (
         "Your forecasted spending appears to be within your current budget. "
         "Continue monitoring your highest spending categories."
     )
+
+
+def _forecast_month_for_user(db: Session, user_id: int) -> date:
+    latest_tx_date = db.query(func.max(Transaction.date)).filter(Transaction.user_id == user_id).scalar()
+    if latest_tx_date is None:
+        return normalize_month(date.today())
+    return _shift_month(normalize_month(latest_tx_date), 1)
+
+
+def _should_create_forecast_risk_insight(forecast: SpendingForecast) -> bool:
+    if forecast["confidence_level"] == "unavailable":
+        return False
+
+    predicted = _optional_float(forecast.get("predicted_next_month_expense"))
+    budget_total = _optional_float(forecast.get("budget_total"))
+    forecast_vs_budget = _optional_float(forecast.get("forecast_vs_budget"))
+    if predicted is None or budget_total is None or forecast_vs_budget is None:
+        return False
+    if budget_total <= 0 or predicted <= budget_total:
+        return False
+
+    meaningful_threshold = max(MEANINGFUL_OVER_BUDGET_FLOOR, budget_total * MEANINGFUL_OVER_BUDGET_RATIO)
+    return forecast_vs_budget >= meaningful_threshold
+
+
+def _forecast_risk_severity(forecast: SpendingForecast) -> Literal["warning", "critical"]:
+    predicted = _optional_float(forecast.get("predicted_next_month_expense")) or 0.0
+    budget_total = _optional_float(forecast.get("budget_total")) or 0.0
+    if budget_total > 0 and predicted >= budget_total * CRITICAL_BUDGET_RATIO:
+        return "critical"
+    return "warning"
+
+
+def _existing_forecast_risk_insight(
+    db: Session,
+    *,
+    user_id: int,
+    forecast_month: date,
+    scope_key: str,
+) -> AIInsight | None:
+    existing = (
+        db.query(AIInsight)
+        .filter(
+            AIInsight.user_id == user_id,
+            AIInsight.rule_id == FORECAST_RISK_RULE_ID,
+            AIInsight.period_start == forecast_month,
+            AIInsight.period_end == _month_end(forecast_month),
+        )
+        .all()
+    )
+    return next(
+        (
+            insight
+            for insight in existing
+            if (insight.metadata_json or {}).get("scope_key") == scope_key
+        ),
+        None,
+    )
+
+
+def maybe_create_forecast_risk_insight(
+    db: Session,
+    *,
+    user_id: int,
+    forecast: SpendingForecast,
+) -> AIInsight | None:
+    if not _should_create_forecast_risk_insight(forecast):
+        return None
+
+    forecast_month = _forecast_month_for_user(db, user_id)
+    scope_key = f"forecast_month:{forecast_month.isoformat()}"
+    existing = _existing_forecast_risk_insight(
+        db,
+        user_id=user_id,
+        forecast_month=forecast_month,
+        scope_key=scope_key,
+    )
+    if existing is not None:
+        return existing
+
+    top_categories = list(forecast.get("top_reduction_categories") or [])
+    insight = AIInsight(
+        user_id=user_id,
+        rule_id=FORECAST_RISK_RULE_ID,
+        title="Forecasted Spending May Exceed Budget",
+        message=_forecast_risk_message(top_categories),
+        severity=_forecast_risk_severity(forecast),
+        period_start=forecast_month,
+        period_end=_month_end(forecast_month),
+        metadata_json={
+            "scope_key": scope_key,
+            "predicted_next_month_expense": forecast.get("predicted_next_month_expense"),
+            "budget_total": forecast.get("budget_total"),
+            "forecast_vs_budget": forecast.get("forecast_vs_budget"),
+            "confidence_level": forecast.get("confidence_level"),
+            "top_reduction_categories": top_categories,
+            "source": FORECAST_RISK_SOURCE,
+        },
+    )
+    db.add(insight)
+    db.commit()
+    db.refresh(insight)
+    return insight
 
 
 class SpendingForecaster:
