@@ -157,6 +157,7 @@ def test_train_saves_artifact_with_required_components(tmp_path: Path) -> None:
     assert "regressor_preprocessor" in artifact
     assert "cluster_preprocessor" in artifact
     assert "feature_columns" in artifact
+    assert "runtime_feature_fields" in artifact
     assert "target_column" in artifact
     assert "cluster_summary" in artifact
     assert "metrics" in artifact

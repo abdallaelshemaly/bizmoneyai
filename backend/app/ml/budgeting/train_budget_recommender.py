@@ -74,6 +74,110 @@ CLUSTER_FEATURE_COLUMNS = [
     "category_share_of_total",
     "total_clean_expense",
 ]
+RUNTIME_FEATURE_FIELDS = [
+    {
+        "name": "clean_monthly_spend",
+        "type": "float",
+        "required": True,
+        "description": "Clean category-level monthly spend with unusual spikes already removed.",
+    },
+    {
+        "name": "current_budget",
+        "type": "float",
+        "required": True,
+        "description": "Current budget assigned to the category for the active month.",
+    },
+    {
+        "name": "previous_month_spend",
+        "type": "float",
+        "required": True,
+        "description": "Previous month's clean spend for the same category.",
+    },
+    {
+        "name": "prev_2_month_spend",
+        "type": "float",
+        "required": True,
+        "description": "Clean spend from two months ago for the same category.",
+    },
+    {
+        "name": "prev_3_month_spend",
+        "type": "float",
+        "required": True,
+        "description": "Clean spend from three months ago for the same category.",
+    },
+    {
+        "name": "avg_3_month_spend",
+        "type": "float",
+        "required": True,
+        "description": "Rolling three-month clean spend average for the category.",
+    },
+    {
+        "name": "avg_6_month_spend",
+        "type": "float",
+        "required": True,
+        "description": "Rolling six-month clean spend average for the category.",
+    },
+    {
+        "name": "growth_rate_3m",
+        "type": "float",
+        "required": True,
+        "description": "Three-month category spending growth rate derived from clean spend history.",
+    },
+    {
+        "name": "budget_usage_ratio",
+        "type": "float",
+        "required": True,
+        "description": "Current clean spend divided by current budget.",
+    },
+    {
+        "name": "overspend_amount",
+        "type": "float",
+        "required": True,
+        "description": "Positive overspend gap between clean spend and current budget.",
+    },
+    {
+        "name": "months_over_budget_3",
+        "type": "float",
+        "required": True,
+        "description": "Count of months over budget in the recent three-month window.",
+    },
+    {
+        "name": "months_over_budget_6",
+        "type": "float",
+        "required": True,
+        "description": "Count of months over budget in the recent six-month window.",
+    },
+    {
+        "name": "category_share_of_total",
+        "type": "float",
+        "required": True,
+        "description": "Category share of total clean expense for the business.",
+    },
+    {
+        "name": "total_clean_expense",
+        "type": "float",
+        "required": True,
+        "description": "Total clean monthly expense across all expense categories.",
+    },
+    {
+        "name": "category_name",
+        "type": "string",
+        "required": True,
+        "description": "Expense category name.",
+    },
+    {
+        "name": "business_profile",
+        "type": "string",
+        "required": True,
+        "description": "Business behavior/profile segment used in the generated dataset.",
+    },
+    {
+        "name": "company_size",
+        "type": "string",
+        "required": True,
+        "description": "Company size bucket.",
+    },
+]
 
 EXPLICIT_EXCLUDED_COLUMNS = {
     TARGET_COLUMN,
@@ -394,6 +498,7 @@ def train(
         "cluster_pipeline": cluster_pipeline,
         "feature_columns": list(prepared.feature_columns),
         "cluster_feature_columns": list(CLUSTER_FEATURE_COLUMNS),
+        "runtime_feature_fields": list(RUNTIME_FEATURE_FIELDS),
         "target_column": TARGET_COLUMN,
         "cluster_labels": label_names,
         "cluster_summary": cluster_summary,
@@ -412,6 +517,7 @@ def train(
             "train_rows": len(train_rows),
             "test_rows": len(test_rows),
             "feature_columns": list(prepared.feature_columns),
+            "runtime_feature_fields": list(RUNTIME_FEATURE_FIELDS),
             "excluded_columns": list(prepared.excluded_columns),
             "leakage_columns": list(prepared.leakage_columns),
             "cluster_feature_columns": list(CLUSTER_FEATURE_COLUMNS),
