@@ -11,9 +11,10 @@ from app.db.session import get_db
 from app.models.budget import Budget
 from app.models.category import Category
 from app.models.user import User
-from app.schemas.budget import BudgetCreate, BudgetOut, BudgetTimeSeriesPoint, BudgetUpdate
+from app.schemas.budget import BudgetCreate, BudgetOut, BudgetRecommendationOut, BudgetTimeSeriesPoint, BudgetUpdate
 from app.services.admin_analytics import invalidate_admin_analytics_cache
 from app.services.budget_metrics import normalize_month
+from app.services import budget_recommender
 from app.services.system_log import log_system_event
 
 router = APIRouter(prefix="/budgets", tags=["budgets"])
@@ -150,6 +151,14 @@ def list_budget_timeseries(
             category_id=category_id,
         ),
     )
+
+
+@router.get("/recommendations", response_model=list[BudgetRecommendationOut])
+def list_budget_recommendations(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return budget_recommender.recommend_budgets_for_user(db, current_user)
 
 
 @router.post("", response_model=BudgetOut, status_code=status.HTTP_201_CREATED)
