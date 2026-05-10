@@ -1,10 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import axios from "axios";
 
 import Navbar from "@/components/Navbar";
 import { useAuth } from "@/hooks/useAuth";
 import api from "@/lib/api";
+import {
+  BUDGET_RECOMMENDATIONS_ROUTE,
+  BudgetRecommendation,
+  confidenceLabel,
+  confidenceTone as recommendationConfidenceTone,
+  formatCurrency,
+  formatPercent,
+  formatSignedCurrency,
+} from "@/lib/budgetRecommendations";
 
 type Category = { category_id: number; name: string; type: "income" | "expense" | "both" };
 type Budget = {
@@ -34,6 +44,9 @@ export default function BudgetsPage() {
   const { user, loading } = useAuth();
   const [categories, setCategories] = useState<Category[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
+  const [recommendations, setRecommendations] = useState<BudgetRecommendation[]>([]);
+  const [recommendationsLoading, setRecommendationsLoading] = useState(false);
+  const [recommendationsError, setRecommendationsError] = useState<string | null>(null);
   const [form, setForm] = useState<Form>(EMPTY_FORM);
   const [selectedMonth, setSelectedMonth] = useState(EMPTY_MONTH);
   const [editId, setEditId] = useState<number | null>(null);
@@ -50,10 +63,31 @@ export default function BudgetsPage() {
     setBudgets(budgetsResponse.data);
   };
 
+  const loadRecommendations = async () => {
+    setRecommendationsLoading(true);
+    setRecommendationsError(null);
+    try {
+      const response = await api.get<BudgetRecommendation[]>(BUDGET_RECOMMENDATIONS_ROUTE);
+      setRecommendations(response.data.filter((recommendation) => recommendation.category_name.trim().length > 0));
+    } catch (err: unknown) {
+      setRecommendations([]);
+      setRecommendationsError(
+        axios.isAxiosError(err) ? err.response?.data?.detail ?? err.message : "Unable to load budget recommendations right now.",
+      );
+    } finally {
+      setRecommendationsLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!user) return;
     refresh();
   }, [user, selectedMonth]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!user) return;
+    void loadRecommendations();
+  }, [user]);
 
   const reset = () => {
     setEditId(null);
@@ -135,6 +169,9 @@ export default function BudgetsPage() {
   const totalBudget = budgets.reduce((sum, budget) => sum + budget.amount, 0);
   const totalSpent = budgets.reduce((sum, budget) => sum + budget.spent, 0);
   const totalRemaining = budgets.reduce((sum, budget) => sum + budget.remaining, 0);
+  const sortedRecommendations = [...recommendations].sort(
+    (left, right) => Math.abs(right.expected_change_amount) - Math.abs(left.expected_change_amount),
+  );
 
   return (
     <>
@@ -212,6 +249,87 @@ export default function BudgetsPage() {
               </button>
             )}
           </div>
+        </div>
+
+        <div className="rounded-xl bg-white p-6 shadow">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-semibold text-ink">Model 4 Budget Recommendations</h2>
+              <p className="mt-1 text-sm text-slate-500">Recommendations are based on your latest clean expense history.</p>
+            </div>
+          </div>
+
+          {recommendationsLoading ? (
+            <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+              Loading recommendations...
+            </div>
+          ) : recommendationsError ? (
+            <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+              Budget recommendations are unavailable right now.
+            </div>
+          ) : sortedRecommendations.length === 0 ? (
+            <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+              No budget recommendations are available yet.
+            </div>
+          ) : (
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              {sortedRecommendations.map((recommendation) => (
+                <div key={recommendation.category_id} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h3 className="font-semibold text-ink">{recommendation.category_name}</h3>
+                      <p className="mt-1 text-sm text-slate-500">
+                        Current budget: ${formatCurrency(recommendation.current_budget)}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${recommendationConfidenceTone(recommendation.confidence_level)}`}
+                      >
+                        {confidenceLabel(recommendation.confidence_level)}
+                      </span>
+                      {recommendation.behavior_group !== "fallback" && (
+                        <span className="rounded-full bg-slate-200 px-3 py-1 text-xs font-medium text-slate-700">
+                          {recommendation.behavior_group}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-400">Recommended</p>
+                      <p className="mt-1 text-lg font-semibold text-ink">${formatCurrency(recommendation.recommended_budget)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-400">Difference</p>
+                      <p
+                        className={`mt-1 text-lg font-semibold ${
+                          recommendation.expected_change_amount >= 0 ? "text-amber-700" : "text-green-700"
+                        }`}
+                      >
+                        {formatSignedCurrency(recommendation.expected_change_amount)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-400">Change</p>
+                      <p
+                        className={`mt-1 text-lg font-semibold ${
+                          recommendation.expected_change_percent >= 0 ? "text-amber-700" : "text-green-700"
+                        }`}
+                      >
+                        {formatPercent(recommendation.expected_change_percent)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <p className="mt-4 text-sm text-slate-600">{recommendation.reason}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {recommendationsError && <p className="mt-3 text-xs text-slate-400">Service note: {recommendationsError}</p>}
         </div>
 
         <div className="rounded-xl bg-white shadow overflow-x-auto">
