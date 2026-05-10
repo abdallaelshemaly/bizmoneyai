@@ -326,7 +326,7 @@ export default function DashboardPage() {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h2 className="font-semibold text-ink">Recommended Budget Adjustments</h2>
-                <p className="mt-1 text-sm text-slate-500">Top category suggestions from Model 4.</p>
+                <p className="mt-1 text-sm text-slate-500">Top categories that may need budget changes.</p>
               </div>
               <Link href="/budgets" className="text-sm font-medium text-teal-700 hover:text-teal-800">
                 View all
@@ -343,39 +343,60 @@ export default function DashboardPage() {
               </div>
             ) : topRecommendations.length === 0 ? (
               <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-                No budget recommendations are available yet.
+                No budget recommendations available yet.
               </div>
             ) : (
-              <div className="mt-4 space-y-3">
-                {topRecommendations.map((recommendation) => (
-                  <div key={recommendation.category_id} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <h3 className="font-medium text-ink">{recommendation.category_name}</h3>
-                        <p className="mt-1 text-sm text-slate-500">
-                          ${formatCurrency(recommendation.current_budget)} to ${formatCurrency(recommendation.recommended_budget)}
+              <div className="mt-4 space-y-4">
+                {topRecommendations.map((recommendation) => {
+                  const isIncrease = recommendation.expected_change_amount >= 0;
+                  const changeTone = isIncrease
+                    ? "border-amber-100 bg-amber-50 text-amber-700"
+                    : "border-emerald-100 bg-emerald-50 text-emerald-700";
+
+                  return (
+                    <div
+                      key={recommendation.category_id}
+                      className="rounded-2xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-white p-4 shadow-sm ring-1 ring-slate-100"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <h3 className="font-semibold text-ink">{recommendation.category_name}</h3>
+                          <p className="mt-2 text-xs text-slate-500">
+                            Current: <span className="font-semibold text-slate-700">${formatCurrency(recommendation.current_budget)}</span>
+                          </p>
+                        </div>
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-semibold ${recommendationConfidenceTone(recommendation.confidence_level)}`}
+                        >
+                          {recommendationConfidenceLabel(recommendation.confidence_level)} confidence
+                        </span>
+                      </div>
+
+                      <div className="mt-4">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Recommended</p>
+                        <p className="mt-1 text-2xl font-bold tracking-tight text-ink">
+                          ${formatCurrency(recommendation.recommended_budget)}
                         </p>
                       </div>
-                      <span
-                        className={`rounded-full px-3 py-1 text-xs font-semibold ${recommendationConfidenceTone(recommendation.confidence_level)}`}
-                      >
-                        {recommendationConfidenceLabel(recommendation.confidence_level)}
-                      </span>
+
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        <div className={`rounded-xl border px-3 py-2 ${changeTone}`}>
+                          <p className="text-xs font-semibold uppercase tracking-wide opacity-75">Difference</p>
+                          <p className="mt-1 text-sm font-bold">{formatSignedCurrency(recommendation.expected_change_amount)}</p>
+                        </div>
+                        <div className={`rounded-xl border px-3 py-2 ${changeTone}`}>
+                          <p className="text-xs font-semibold uppercase tracking-wide opacity-75">Change</p>
+                          <p className="mt-1 text-sm font-bold">{formatPercent(recommendation.expected_change_percent)}</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 rounded-xl border border-blue-100 border-l-4 border-l-blue-500 bg-blue-50/80 px-3 py-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Recommendation</p>
+                        <p className="mt-1 text-sm leading-6 text-slate-700">{recommendation.reason}</p>
+                      </div>
                     </div>
-                    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                      <span className={recommendation.expected_change_amount >= 0 ? "text-amber-700" : "text-green-700"}>
-                        {formatSignedCurrency(recommendation.expected_change_amount)}
-                      </span>
-                      <span className={recommendation.expected_change_percent >= 0 ? "text-amber-700" : "text-green-700"}>
-                        {formatPercent(recommendation.expected_change_percent)}
-                      </span>
-                      {recommendation.behavior_group !== "fallback" && (
-                        <span className="text-slate-500">{recommendation.behavior_group}</span>
-                      )}
-                    </div>
-                    <p className="mt-3 text-sm text-slate-600">{recommendation.reason}</p>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
