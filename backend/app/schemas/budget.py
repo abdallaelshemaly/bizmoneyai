@@ -55,3 +55,17 @@ class BudgetTimeSeriesPoint(BaseModel):
     total_budgeted: float
     total_spent: float
     over_budget_count: int
+
+
+class BudgetRecommendationOut(BaseModel):
+    category_id: int
+    category_name: str
+    current_budget: float
+    recommended_budget: float
+    confidence_level: Literal["low", "medium", "high", "unavailable"]
+    behavior_group: str
+    cluster_label: str
+    reason: str
+    expected_change_amount: float
+    expected_change_percent: float
+    months_used: int

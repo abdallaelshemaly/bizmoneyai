@@ -10,6 +10,15 @@ import Navbar from "@/components/Navbar";
 import SummaryChart from "@/components/SummaryChart";
 import { useAuth } from "@/hooks/useAuth";
 import api from "@/lib/api";
+import {
+  BUDGET_RECOMMENDATIONS_ROUTE,
+  BudgetRecommendation,
+  confidenceLabel as recommendationConfidenceLabel,
+  confidenceTone as recommendationConfidenceTone,
+  formatCurrency,
+  formatPercent,
+  formatSignedCurrency,
+} from "@/lib/budgetRecommendations";
 
 type MonthlyTrend = { month: string; income: number; expense: number };
 type CategoryBreakdown = { category_name: string; total: number };
@@ -60,6 +69,9 @@ export default function DashboardPage() {
   const { user, loading } = useAuth();
   const [summary, setSummary] = useState<Summary | null>(null);
   const [forecast, setForecast] = useState<SpendingForecast | null>(null);
+  const [recommendations, setRecommendations] = useState<BudgetRecommendation[]>([]);
+  const [recommendationsLoading, setRecommendationsLoading] = useState(false);
+  const [recommendationsError, setRecommendationsError] = useState<string | null>(null);
   const [forecastLoading, setForecastLoading] = useState(false);
   const [forecastError, setForecastError] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState(DEFAULT_MONTH);
@@ -83,6 +95,20 @@ export default function DashboardPage() {
         setForecastError(axios.isAxiosError(error) ? error.message : "Unable to load spending forecast.");
       })
       .finally(() => setForecastLoading(false));
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    setRecommendationsLoading(true);
+    setRecommendationsError(null);
+    void api
+      .get<BudgetRecommendation[]>(BUDGET_RECOMMENDATIONS_ROUTE)
+      .then((r) => setRecommendations(r.data))
+      .catch((error) => {
+        setRecommendations([]);
+        setRecommendationsError(axios.isAxiosError(error) ? error.message : "Unable to load budget recommendations.");
+      })
+      .finally(() => setRecommendationsLoading(false));
   }, [user]);
 
   if (loading) {
@@ -121,6 +147,9 @@ export default function DashboardPage() {
   const confidenceLabel = forecastLoading
     ? "Loading"
     : `${forecast?.confidence_level?.charAt(0).toUpperCase() ?? "U"}${forecast?.confidence_level?.slice(1) ?? "navailable"}`;
+  const topRecommendations = [...recommendations]
+    .sort((left, right) => Math.abs(right.expected_change_amount) - Math.abs(left.expected_change_amount))
+    .slice(0, 3);
 
   return (
     <>
@@ -293,6 +322,66 @@ export default function DashboardPage() {
         </div>
 
         <div className="grid gap-6 lg:grid-cols-2">
+          <div className="rounded-xl bg-white p-5 shadow">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="font-semibold text-ink">Recommended Budget Adjustments</h2>
+                <p className="mt-1 text-sm text-slate-500">Top category suggestions from Model 4.</p>
+              </div>
+              <Link href="/budgets" className="text-sm font-medium text-teal-700 hover:text-teal-800">
+                View all
+              </Link>
+            </div>
+
+            {recommendationsLoading ? (
+              <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+                Loading recommendations...
+              </div>
+            ) : recommendationsError ? (
+              <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+                Budget recommendations are unavailable right now.
+              </div>
+            ) : topRecommendations.length === 0 ? (
+              <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+                No budget recommendations are available yet.
+              </div>
+            ) : (
+              <div className="mt-4 space-y-3">
+                {topRecommendations.map((recommendation) => (
+                  <div key={recommendation.category_id} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="font-medium text-ink">{recommendation.category_name}</h3>
+                        <p className="mt-1 text-sm text-slate-500">
+                          ${formatCurrency(recommendation.current_budget)} to ${formatCurrency(recommendation.recommended_budget)}
+                        </p>
+                      </div>
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${recommendationConfidenceTone(recommendation.confidence_level)}`}
+                      >
+                        {recommendationConfidenceLabel(recommendation.confidence_level)}
+                      </span>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                      <span className={recommendation.expected_change_amount >= 0 ? "text-amber-700" : "text-green-700"}>
+                        {formatSignedCurrency(recommendation.expected_change_amount)}
+                      </span>
+                      <span className={recommendation.expected_change_percent >= 0 ? "text-amber-700" : "text-green-700"}>
+                        {formatPercent(recommendation.expected_change_percent)}
+                      </span>
+                      {recommendation.behavior_group !== "fallback" && (
+                        <span className="text-slate-500">{recommendation.behavior_group}</span>
+                      )}
+                    </div>
+                    <p className="mt-3 text-sm text-slate-600">{recommendation.reason}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {recommendationsError && <p className="mt-3 text-xs text-slate-400">Service note: {recommendationsError}</p>}
+          </div>
+
           <div className="rounded-xl bg-white p-5 shadow">
             <h2 className="mb-3 font-semibold text-ink">Income vs Expenses</h2>
             <SummaryChart income={summary?.total_income ?? 0} expense={summary?.total_expense ?? 0} />
