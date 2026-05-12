@@ -2,7 +2,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import app.api.admin_auth as admin_auth_module
+import app.api.admin as admin_module
 import app.api.auth as auth_module
+from app.api.admin import router as admin_router
 from app.api.admin_auth import protected_router as admin_protected_router
 from app.api.admin_auth import router as admin_auth_router
 from app.api.auth import router as auth_router
@@ -16,57 +18,88 @@ def create_test_app() -> FastAPI:
     app = FastAPI()
     app.include_router(admin_auth_router)
     app.include_router(admin_protected_router)
+    app.include_router(admin_router)
     app.include_router(auth_router)
     return app
 
 
-def test_register_enforces_password_minimum_length(db_session, monkeypatch):
-    monkeypatch.setattr(auth_module, "get_password_hash", lambda password: password)
-
+def test_public_registration_is_disabled(db_session):
     app = create_test_app()
     app.dependency_overrides[get_db] = lambda: db_session
     client = TestClient(app)
 
     try:
-        short_password_response = client.post(
+        response = client.post(
             "/auth/register",
-            json={"name": "Short Password", "email": "short@example.com", "password": "12345"},
+            json={"name": "Public User", "email": "public@example.com", "password": "secret1"},
         )
-        assert short_password_response.status_code == 422
-        assert "at least 6 characters" in short_password_response.json()["detail"][0]["msg"]
-
-        valid_password_response = client.post(
-            "/auth/register",
-            json={"name": "Valid Password", "email": "valid@example.com", "password": "123456"},
-        )
-        assert valid_password_response.status_code == 201
-        assert valid_password_response.json()["email"] == "valid@example.com"
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Public registration is disabled. Please contact the administrator."
+        assert db_session.query(User).filter(User.email == "public@example.com").first() is None
     finally:
         app.dependency_overrides.clear()
 
 
-def test_register_and_login_normalize_email_case_insensitively(db_session, monkeypatch):
-    monkeypatch.setattr(auth_module, "get_password_hash", lambda password: password)
+def test_admin_can_create_user_and_manage_login_lifecycle(db_session, monkeypatch):
+    monkeypatch.setattr(admin_auth_module, "verify_password", lambda plain, hashed: plain == hashed)
+    monkeypatch.setattr(admin_module, "get_password_hash", lambda password: password)
     monkeypatch.setattr(auth_module, "verify_password", lambda plain, hashed: plain == hashed)
+
+    admin = Admin(name="Admin User", email="admin@example.com", password_hash="admin-secret")
+    db_session.add(admin)
+    db_session.commit()
 
     app = create_test_app()
     app.dependency_overrides[get_db] = lambda: db_session
     client = TestClient(app)
 
     try:
-        register_response = client.post(
-            "/auth/register",
-            json={"name": "Normalized User", "email": "MixedCase@Example.com", "password": "secret1"},
+        unauthorized_response = client.post(
+            "/admin/users",
+            json={"name": "Managed User", "email": "managed@example.com", "password": "secret1"},
         )
-        assert register_response.status_code == 201
-        assert register_response.json()["email"] == "mixedcase@example.com"
+        assert unauthorized_response.status_code == 401
+
+        admin_login_response = client.post(
+            "/admin/auth/login",
+            json={"email": "admin@example.com", "password": "admin-secret"},
+        )
+        assert admin_login_response.status_code == 200
+
+        missing_password_response = client.post(
+            "/admin/users",
+            json={"name": "Missing Password", "email": "missing-password@example.com"},
+        )
+        assert missing_password_response.status_code == 422
+        assert "password" in str(missing_password_response.json()["detail"])
+
+        invalid_email_response = client.post(
+            "/admin/users",
+            json={"name": "Invalid Email", "email": "not-an-email", "password": "secret1"},
+        )
+        assert invalid_email_response.status_code == 422
+        assert "email" in str(invalid_email_response.json()["detail"])
+
+        create_response = client.post(
+            "/admin/users",
+            json={"name": "Managed User", "email": "MixedCase@Example.com", "password": "secret1", "is_active": True},
+        )
+        assert create_response.status_code == 201
+        body = create_response.json()
+        assert body["email"] == "mixedcase@example.com"
+        assert body["is_active"] is True
+        assert "password_hash" not in body
 
         duplicate_response = client.post(
-            "/auth/register",
+            "/admin/users",
             json={"name": "Duplicate User", "email": "mixedcase@example.com", "password": "secret1"},
         )
         assert duplicate_response.status_code == 400
         assert duplicate_response.json()["detail"] == "Email already registered"
+
+        users_response = client.get("/admin/users", params={"search": "mixedcase"})
+        assert users_response.status_code == 200
+        assert users_response.json()["total"] == 1
 
         login_response = client.post(
             "/auth/login",
@@ -78,6 +111,35 @@ def test_register_and_login_normalize_email_case_insensitively(db_session, monke
 
         stored_user = db_session.query(User).filter(User.email == "mixedcase@example.com").one()
         assert stored_user.email == "mixedcase@example.com"
+        assert stored_user.password_hash == "secret1"
+
+        deactivate_response = client.patch(
+            f"/admin/users/{stored_user.user_id}/status",
+            json={"is_active": False},
+        )
+        assert deactivate_response.status_code == 200
+        assert deactivate_response.json()["is_active"] is False
+
+        blocked_login_response = client.post(
+            "/auth/login",
+            json={"email": "mixedcase@example.com", "password": "secret1"},
+        )
+        assert blocked_login_response.status_code == 403
+        assert blocked_login_response.json()["detail"] == "Your account is inactive. Please contact the administrator."
+
+        reactivate_response = client.patch(
+            f"/admin/users/{stored_user.user_id}/status",
+            json={"is_active": True},
+        )
+        assert reactivate_response.status_code == 200
+        assert reactivate_response.json()["is_active"] is True
+
+        reactivated_login_response = client.post(
+            "/auth/login",
+            json={"email": "mixedcase@example.com", "password": "secret1"},
+        )
+        assert reactivated_login_response.status_code == 200
+        assert reactivated_login_response.json()["email"] == "mixedcase@example.com"
     finally:
         app.dependency_overrides.clear()
 

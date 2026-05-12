@@ -6,10 +6,10 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.core.config import settings
-from app.core.security import create_access_token, get_password_hash, verify_password
+from app.core.security import create_access_token, verify_password
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.user import UserCreate, UserLogin, UserOut
+from app.schemas.user import UserLogin, UserOut
 from app.services.admin_analytics import invalidate_admin_analytics_cache
 from app.services.system_log import log_system_event
 
@@ -20,32 +20,12 @@ def _normalize_email(value: object) -> str:
     return str(value).strip().lower()
 
 
-@router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
-def register(payload: UserCreate, db: Session = Depends(get_db)):
-    normalized_email = _normalize_email(payload.email)
-    existing = db.query(User).filter(func.lower(User.email) == normalized_email).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Email already registered")
-
-    user = User(
-        name=payload.name,
-        email=normalized_email,
-        password_hash=get_password_hash(payload.password),
+@router.post("/register", status_code=status.HTTP_403_FORBIDDEN)
+def register():
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Public registration is disabled. Please contact the administrator.",
     )
-    db.add(user)
-    db.flush()
-    log_system_event(
-        db,
-        "user_registration",
-        f"User registered {user.email}",
-        user_id=user.user_id,
-        entity_id=user.user_id,
-        metadata={"email": user.email},
-    )
-    db.commit()
-    invalidate_admin_analytics_cache()
-    db.refresh(user)
-    return user
 
 
 @router.post("/login", response_model=UserOut)
@@ -55,7 +35,10 @@ def login(payload: UserLogin, response: Response, db: Session = Depends(get_db))
     if not user or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     if not user.is_active:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User account is inactive")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your account is inactive. Please contact the administrator.",
+        )
 
     token = create_access_token(str(user.user_id), timedelta(minutes=settings.access_token_expire_minutes))
     response.set_cookie(

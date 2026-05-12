@@ -5,7 +5,7 @@ import api from "@/lib/api";
 
 export type AuthUser = { user_id: number; name: string; email: string; is_active: boolean; created_at: string };
 
-const PUBLIC_PATHS = ["/login", "/register"];
+const PUBLIC_PATHS = ["/login"];
 
 export function useAuth() {
   const router = useRouter();

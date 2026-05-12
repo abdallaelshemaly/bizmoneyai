@@ -7,6 +7,7 @@ from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_admin
+from app.core.security import get_password_hash
 from app.core.time import utcnow
 from app.db.session import get_db
 from app.models.admin import Admin
@@ -47,6 +48,7 @@ from app.schemas.admin_panel import (
     AdminTransactionOut,
     AdminTransactionTrend,
     AdminUserFinancialSummary,
+    AdminUserCreate,
     AdminUserOverview,
     AdminUserRow,
     AdminUserSummary,
@@ -382,6 +384,46 @@ def list_users(
             inactive_count=total - active_count,
         ),
     )
+
+
+@router.post("/users", response_model=AdminUserRow, status_code=status.HTTP_201_CREATED)
+def create_user(
+    payload: AdminUserCreate,
+    db: Session = Depends(get_db),
+    current_admin: Admin = Depends(require_admin),
+):
+    normalized_email = _normalize_text_search(str(payload.email))
+    if not normalized_email:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid email")
+
+    existing = db.query(User).filter(func.lower(User.email) == normalized_email).first()
+    if existing:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
+
+    user = User(
+        name=payload.name.strip(),
+        email=normalized_email,
+        password_hash=get_password_hash(payload.password),
+        is_active=payload.is_active,
+    )
+    db.add(user)
+    db.flush()
+    log_system_event(
+        db,
+        "admin_create_user",
+        f"Admin created user {user.email}",
+        admin_id=current_admin.admin_id,
+        user_id=user.user_id,
+        entity_id=user.user_id,
+        metadata={
+            "email": user.email,
+            "is_active": user.is_active,
+        },
+    )
+    db.commit()
+    invalidate_admin_analytics_cache()
+    db.refresh(user)
+    return _build_admin_user_row(db, user)
 
 
 @router.get("/users/{user_id}/overview", response_model=AdminUserOverview)

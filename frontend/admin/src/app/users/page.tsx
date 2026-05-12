@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { FormEvent, useState } from "react";
 
 import AdminMetricCard from "@/components/AdminMetricCard";
 import AdminPanel from "@/components/AdminPanel";
@@ -11,6 +11,20 @@ import api from "@/lib/api";
 import { getErrorMessage } from "@/lib/errors";
 import { formatCompactNumber, formatDateTime } from "@/lib/format";
 import { AdminUserRow, AdminUsersResponse } from "@/lib/types";
+
+type CreateUserForm = {
+  name: string;
+  email: string;
+  password: string;
+  is_active: boolean;
+};
+
+const initialCreateForm: CreateUserForm = {
+  name: "",
+  email: "",
+  password: "",
+  is_active: true,
+};
 
 export default function AdminUsersPage() {
   const table = useAdminDataTable<AdminUsersResponse, AdminUserRow>({
@@ -26,6 +40,34 @@ export default function AdminUsersPage() {
 
   const [actionError, setActionError] = useState("");
   const [busyUserId, setBusyUserId] = useState<number | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createForm, setCreateForm] = useState<CreateUserForm>(initialCreateForm);
+  const [createError, setCreateError] = useState("");
+  const [createSuccess, setCreateSuccess] = useState("");
+  const [createLoading, setCreateLoading] = useState(false);
+
+  const createUser = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setCreateError("");
+    setCreateSuccess("");
+
+    if (createForm.password.length < 6) {
+      setCreateError("Password must be at least 6 characters.");
+      return;
+    }
+
+    setCreateLoading(true);
+    try {
+      const response = await api.post<AdminUserRow>("/admin/users", createForm);
+      setCreateSuccess(`${response.data.email} was created.`);
+      setCreateForm(initialCreateForm);
+      await table.refetch();
+    } catch (err: unknown) {
+      setCreateError(getErrorMessage(err, "Failed to create the user."));
+    } finally {
+      setCreateLoading(false);
+    }
+  };
 
   const toggleStatus = async (user: AdminUserRow) => {
     setBusyUserId(user.user_id);
@@ -142,9 +184,14 @@ export default function AdminUsersPage() {
     <AdminShell
       title="User Monitoring"
       actions={
-        <button onClick={() => void table.refetch()} className="bg-white px-4 py-2 text-sm text-slate-700 shadow-sm ring-1 ring-slate-200">
-          Refresh
-        </button>
+        <>
+          <button onClick={() => setCreateOpen((open) => !open)} className="bg-emerald-600 px-4 py-2 text-sm">
+            Create User
+          </button>
+          <button onClick={() => void table.refetch()} className="bg-white px-4 py-2 text-sm text-slate-700 shadow-sm ring-1 ring-slate-200">
+            Refresh
+          </button>
+        </>
       }
     >
       <div className="space-y-6">
@@ -155,6 +202,69 @@ export default function AdminUsersPage() {
           <AdminMetricCard label="Active" value={formatCompactNumber(usersSummary?.active_count ?? 0)} helper="Allowed to sign in" tone="success" />
           <AdminMetricCard label="Inactive" value={formatCompactNumber(usersSummary?.inactive_count ?? 0)} helper="Blocked from user auth" tone="warning" />
         </div>
+
+        {createOpen && (
+          <AdminPanel title="Create User">
+            <form onSubmit={createUser} className="space-y-4">
+              {createError && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{createError}</div>}
+              {createSuccess && <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{createSuccess}</div>}
+
+              <div className="grid gap-4 lg:grid-cols-[1fr_1fr_1fr_auto] lg:items-end">
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Name</span>
+                  <input
+                    type="text"
+                    value={createForm.name}
+                    onChange={(event) => setCreateForm((form) => ({ ...form, name: event.target.value }))}
+                    autoComplete="name"
+                    placeholder="Jane Doe"
+                    className="w-full"
+                    required
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Email</span>
+                  <input
+                    type="email"
+                    value={createForm.email}
+                    onChange={(event) => setCreateForm((form) => ({ ...form, email: event.target.value }))}
+                    autoComplete="email"
+                    placeholder="user@company.com"
+                    className="w-full"
+                    required
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Password</span>
+                  <input
+                    type="password"
+                    value={createForm.password}
+                    onChange={(event) => setCreateForm((form) => ({ ...form, password: event.target.value }))}
+                    autoComplete="new-password"
+                    placeholder="Min 6 characters"
+                    minLength={6}
+                    className="w-full"
+                    required
+                  />
+                </label>
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={createForm.is_active}
+                      onChange={(event) => setCreateForm((form) => ({ ...form, is_active: event.target.checked }))}
+                      className="h-4 w-4"
+                    />
+                    Active
+                  </label>
+                  <button type="submit" disabled={createLoading} className="px-4 py-2 text-sm">
+                    {createLoading ? "Creating..." : "Create"}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </AdminPanel>
+        )}
 
         <AdminPanel title="Manage Users">
           <DataTable

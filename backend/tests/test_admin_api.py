@@ -426,6 +426,7 @@ def test_admin_mutations_update_state_and_write_logs(db_session, monkeypatch):
             json={"email": "managed@example.com", "password": "pw"},
         )
         assert blocked_login_response.status_code == 403
+        assert blocked_login_response.json()["detail"] == "Your account is inactive. Please contact the administrator."
 
         defaults_response = client.post(
             "/admin/categories/defaults",
@@ -496,7 +497,6 @@ def test_admin_routes_require_admin_authentication(db_session):
 
 
 def test_auth_and_ai_routes_write_requested_system_logs(db_session, monkeypatch):
-    monkeypatch.setattr(auth_module, "get_password_hash", lambda password: password)
     monkeypatch.setattr(auth_module, "verify_password", lambda plain, hashed: plain == hashed)
 
     def fake_run_rules_for_user(db, user_id, period_start, period_end):
@@ -515,17 +515,15 @@ def test_auth_and_ai_routes_write_requested_system_logs(db_session, monkeypatch)
 
     monkeypatch.setattr(ai_module, "run_rules_for_user", fake_run_rules_for_user)
 
+    user = User(name="Log User", email="log-user@example.com", password_hash="pw1234", is_active=True)
+    db_session.add(user)
+    db_session.commit()
+
     app = create_test_app()
     app.dependency_overrides[get_db] = lambda: db_session
     client = TestClient(app)
 
     try:
-        register_response = client.post(
-            "/auth/register",
-            json={"name": "Log User", "email": "log-user@example.com", "password": "pw1234"},
-        )
-        assert register_response.status_code == 201
-
         login_response = client.post(
             "/auth/login",
             json={"email": "log-user@example.com", "password": "pw1234"},
@@ -545,7 +543,6 @@ def test_auth_and_ai_routes_write_requested_system_logs(db_session, monkeypatch)
         assert generate_response.json()[0]["title"] == "Synthetic Insight"
 
         event_types = [item.event_type for item in db_session.query(SystemLog).order_by(SystemLog.log_id.asc()).all()]
-        assert "user_registration" in event_types
         assert "user_login" in event_types
         assert "generate_insights" in event_types
     finally:

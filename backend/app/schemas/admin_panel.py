@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import Any
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 
 class AdminCountByLabel(BaseModel):
@@ -182,6 +182,13 @@ class AdminUserRow(BaseModel):
     budgets_count: int
     insights_count: int
     last_activity: datetime | None
+
+
+class AdminUserCreate(BaseModel):
+    name: str = Field(min_length=1)
+    email: EmailStr
+    password: str = Field(min_length=6)
+    is_active: bool = True
 
 
 class AdminUserSummary(BaseModel):
