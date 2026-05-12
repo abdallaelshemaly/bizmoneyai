@@ -30,6 +30,11 @@ class AIInsightGenerateRequest(BaseModel):
     period_end: date | None = None
 
 
+class AIInsightClearResponse(BaseModel):
+    deleted_count: int
+    message: str
+
+
 class AIInsightTimeSeriesPoint(BaseModel):
     bucket: date
     insights_count: int
