@@ -148,6 +148,66 @@ def test_ai_generate_endpoint_uses_default_period_when_payload_is_omitted(db_ses
         app.dependency_overrides.clear()
 
 
+def test_ai_generate_endpoint_does_not_create_duplicate_insights_on_repeated_generation(db_session):
+    user = User(name="API Dedupe User", email="api-dedupe@example.com", password_hash="x")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    income = Category(user_id=user.user_id, name="Sales", type="income")
+    expense = Category(user_id=user.user_id, name="Operations", type="expense")
+    db_session.add_all([income, expense])
+    db_session.commit()
+    db_session.refresh(income)
+    db_session.refresh(expense)
+
+    db_session.add_all(
+        [
+            Transaction(
+                user_id=user.user_id,
+                category_id=income.category_id,
+                amount=1000.0,
+                type="income",
+                description="Monthly sales",
+                date=date(2026, 4, 5),
+            ),
+            Transaction(
+                user_id=user.user_id,
+                category_id=expense.category_id,
+                amount=1200.0,
+                type="expense",
+                description="Campaign spend",
+                date=date(2026, 4, 12),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    client = _build_authenticated_client(db_session, user)
+
+    try:
+        first_response = client.post(
+            "/ai/generate",
+            json={"period_start": "2026-04-01", "period_end": "2026-04-30"},
+        )
+        assert first_response.status_code == 200
+        assert len(first_response.json()) >= 1
+
+        stored_after_first = db_session.query(AIInsight).filter(AIInsight.user_id == user.user_id).count()
+
+        second_response = client.post(
+            "/ai/generate",
+            json={"period_start": "2026-04-01", "period_end": "2026-04-30"},
+        )
+        assert second_response.status_code == 200
+        assert second_response.json() == []
+
+        stored_after_second = db_session.query(AIInsight).filter(AIInsight.user_id == user.user_id).count()
+        assert stored_after_second == stored_after_first
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_ai_insight_filters_and_timeseries_route_behaviour(db_session):
     user = User(name="Insight Filter User", email="insight-filter@example.com", password_hash="x")
     other_user = User(name="Other Insight User", email="other-insight@example.com", password_hash="x")

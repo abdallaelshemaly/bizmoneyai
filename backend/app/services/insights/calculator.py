@@ -23,6 +23,14 @@ class DateRange:
     def day_count(self) -> int:
         return (self.end - self.start).days + 1
 
+    @property
+    def is_full_month_span(self) -> bool:
+        return self.start == normalize_month(self.start) and self.end == date(
+            self.end.year,
+            self.end.month,
+            monthrange(self.end.year, self.end.month)[1],
+        )
+
 
 @dataclass
 class CategoryTotals:
@@ -80,12 +88,21 @@ class MonthlyExpenseSnapshot:
 
 
 @dataclass(frozen=True)
+class MonthlyComparison:
+    current_period: DateRange
+    previous_period: DateRange
+    current: PeriodMetrics
+    previous: PeriodMetrics
+
+
+@dataclass(frozen=True)
 class InsightCalculationContext:
     user_id: int
     current_period: DateRange
     previous_period: DateRange
     current: PeriodMetrics
     previous: PeriodMetrics
+    monthly_comparison: MonthlyComparison | None
     current_monthly_expenses: tuple[MonthlyExpenseSnapshot, ...]
     current_budgets: tuple[BudgetSnapshot, ...]
     consecutive_overspend_counts: dict[tuple[int, date], int]
@@ -111,6 +128,11 @@ def build_insight_context(
 
     current_metrics = _load_period_metrics(db, user_id=user_id, period=current_period)
     previous_metrics = _load_period_metrics(db, user_id=user_id, period=previous_period)
+    monthly_comparison = _build_monthly_comparison(
+        db,
+        user_id=user_id,
+        current_period=current_period,
+    )
 
     months_in_period = _month_starts_between(period_start, period_end)
     current_monthly_expenses = tuple(
@@ -133,6 +155,7 @@ def build_insight_context(
         previous_period=previous_period,
         current=current_metrics,
         previous=previous_metrics,
+        monthly_comparison=monthly_comparison,
         current_monthly_expenses=current_monthly_expenses,
         current_budgets=current_budgets,
         consecutive_overspend_counts=consecutive_counts,
@@ -143,6 +166,38 @@ def _previous_period(current_period: DateRange) -> DateRange:
     previous_end = current_period.start - timedelta(days=1)
     previous_start = previous_end - timedelta(days=current_period.day_count - 1)
     return DateRange(start=previous_start, end=previous_end)
+
+
+def _build_monthly_comparison(
+    db: Session,
+    *,
+    user_id: int,
+    current_period: DateRange,
+) -> MonthlyComparison | None:
+    if not current_period.is_full_month_span:
+        return None
+
+    previous_period = _previous_full_month_period(current_period)
+    return MonthlyComparison(
+        current_period=current_period,
+        previous_period=previous_period,
+        current=_load_period_metrics(db, user_id=user_id, period=current_period),
+        previous=_load_period_metrics(db, user_id=user_id, period=previous_period),
+    )
+def _previous_full_month_period(current_period: DateRange) -> DateRange:
+    months_in_period = _month_starts_between(current_period.start, current_period.end)
+    previous_end = current_period.start - timedelta(days=1)
+    previous_start = normalize_month(previous_end)
+    for _ in range(len(months_in_period) - 1):
+        previous_start = _previous_month_start(previous_start)
+    return DateRange(start=previous_start, end=previous_end)
+
+
+def _previous_month_start(value: date) -> date:
+    normalized = normalize_month(value)
+    if normalized.month == 1:
+        return normalized.replace(year=normalized.year - 1, month=12)
+    return normalized.replace(month=normalized.month - 1)
 
 
 def _load_period_metrics(

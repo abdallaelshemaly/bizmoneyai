@@ -309,8 +309,12 @@ def _evaluate_profit_drop_percent(
     context: InsightCalculationContext,
     defaults: dict[str, Any],
 ) -> list[InsightCandidate]:
-    previous_profit = context.previous.balance
-    current_profit = context.current.balance
+    comparison = context.monthly_comparison
+    if comparison is None:
+        return []
+
+    previous_profit = comparison.previous.balance
+    current_profit = comparison.current.balance
     if previous_profit <= 0 or current_profit >= previous_profit:
         return []
 
@@ -470,8 +474,12 @@ def _evaluate_income_drop_percent(
     context: InsightCalculationContext,
     defaults: dict[str, Any],
 ) -> list[InsightCandidate]:
-    previous_income = context.previous.total_income
-    current_income = context.current.total_income
+    comparison = context.monthly_comparison
+    if comparison is None:
+        return []
+
+    previous_income = comparison.previous.total_income
+    current_income = comparison.current.total_income
     if previous_income <= 0 or current_income >= previous_income:
         return []
 
@@ -653,6 +661,9 @@ def _evaluate_zero_income_with_expense(
     context: InsightCalculationContext,
     defaults: dict[str, Any],
 ) -> list[InsightCandidate]:
+    if not context.current_period.is_full_month_span:
+        return []
+
     min_income = float(defaults.get("min_income_for_ratio_rules", 0.0) or 0.0)
     if context.current.total_income > min_income or context.current.total_expense <= 0:
         return []

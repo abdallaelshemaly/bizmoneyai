@@ -33,6 +33,26 @@ const PRIORITY_BADGE = {
 const today = new Date().toISOString().slice(0, 10);
 const defaultStart = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
+function isFullMonthSpan(start: string, end: string) {
+  if (!start || !end) return false;
+  const startDate = new Date(`${start}T00:00:00`);
+  const endDate = new Date(`${end}T00:00:00`);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return false;
+  const startMonthFirst = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+  const endMonthLast = new Date(endDate.getFullYear(), endDate.getMonth() + 1, 0);
+  return startDate.getTime() === startMonthFirst.getTime() && endDate.getTime() === endMonthLast.getTime();
+}
+
+function suggestFullMonthRange(start: string, end: string) {
+  if (!start || !end) return null;
+  const startDate = new Date(`${start}T00:00:00`);
+  const endDate = new Date(`${end}T00:00:00`);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return null;
+  const suggestedStart = new Date(startDate.getFullYear(), startDate.getMonth(), 1).toISOString().slice(0, 10);
+  const suggestedEnd = new Date(endDate.getFullYear(), endDate.getMonth() + 1, 0).toISOString().slice(0, 10);
+  return { suggestedStart, suggestedEnd };
+}
+
 function priorityLabel(level?: Insight["priority_level"]) {
   if (!level) return null;
   return `${level.charAt(0).toUpperCase()}${level.slice(1)} priority`;
@@ -121,6 +141,8 @@ export default function InsightsPage() {
   }
 
   const filteredInsights = severityFilter === "all" ? insights : insights.filter((ins) => ins.severity === severityFilter);
+  const fullMonthSuggestion = suggestFullMonthRange(periodStart, periodEnd);
+  const isPartialPeriodSelection = periodStart !== "" && periodEnd !== "" && !isFullMonthSpan(periodStart, periodEnd);
   const counts = {
     all: insights.length,
     critical: insights.filter((ins) => ins.severity === "critical").length,
@@ -150,6 +172,30 @@ export default function InsightsPage() {
             </button>
           </div>
         </div>
+
+        {isPartialPeriodSelection && fullMonthSuggestion && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span>
+                Partial ranges can understate income and profit. Month-over-month drop rules only run for full calendar months. Try{" "}
+                <strong>
+                  {fullMonthSuggestion.suggestedStart} to {fullMonthSuggestion.suggestedEnd}
+                </strong>
+                .
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setPeriodStart(fullMonthSuggestion.suggestedStart);
+                  setPeriodEnd(fullMonthSuggestion.suggestedEnd);
+                }}
+                className="bg-amber-100 text-amber-900 hover:bg-amber-200"
+              >
+                Use full months
+              </button>
+            </div>
+          </div>
+        )}
 
         {msg && <div className="rounded-lg bg-slate-100 px-4 py-3 text-sm text-slate-700">{msg}</div>}
         {loadError && (

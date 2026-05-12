@@ -285,6 +285,52 @@ def test_run_rules_for_user_uses_explicit_zero_income_rule(db_session):
     assert all(insight.rule_id != "expense_ratio" for insight in created)
 
 
+def test_partial_period_skips_zero_income_rule_when_income_is_outside_selected_range(db_session):
+    user = User(name="Partial Zero Income User", email="partial-zero-income@example.com", password_hash="x")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    income = Category(user_id=user.user_id, name="Sales", type="income")
+    expenses = Category(user_id=user.user_id, name="Operations", type="expense")
+    db_session.add_all([income, expenses])
+    db_session.commit()
+    db_session.refresh(income)
+    db_session.refresh(expenses)
+
+    db_session.add_all(
+        [
+            Transaction(
+                user_id=user.user_id,
+                category_id=income.category_id,
+                amount=4000.0,
+                type="income",
+                description="Early month revenue",
+                date=date(2026, 4, 2),
+            ),
+            Transaction(
+                user_id=user.user_id,
+                category_id=expenses.category_id,
+                amount=750.0,
+                type="expense",
+                description="Mid-month expense",
+                date=date(2026, 4, 18),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    created = run_rules_for_user(
+        db_session,
+        user.user_id,
+        date(2026, 4, 13),
+        date(2026, 4, 30),
+    )
+
+    created_rule_ids = {insight.rule_id for insight in created}
+    assert "zero_income_with_expense" not in created_rule_ids
+
+
 def test_expense_ratio_rule_triggers_with_threshold_severity(db_session):
     user = _create_user(db_session, name="Expense Ratio User", email="expense-ratio@example.com")
     income = _create_category(db_session, user_id=user.user_id, name="Sales", category_type="income")
@@ -466,6 +512,54 @@ def test_profit_drop_percent_rule_supports_warning_threshold(db_session):
 
     profit_drop_insight = next(insight for insight in created if insight.rule_id == "profit_drop_percent")
     assert profit_drop_insight.severity == "warning"
+
+
+def test_full_month_period_with_normal_monthly_data_does_not_create_false_income_or_profit_drop(db_session):
+    user = _create_user(db_session, name="Full Month Stable User", email="full-month-stable@example.com")
+    income = _create_category(db_session, user_id=user.user_id, name="Sales", category_type="income")
+    expense = _create_category(db_session, user_id=user.user_id, name="Operations", category_type="expense")
+
+    _add_transactions(
+        db_session,
+        Transaction(
+            user_id=user.user_id,
+            category_id=income.category_id,
+            amount=3000.0,
+            type="income",
+            description="March revenue",
+            date=date(2026, 3, 5),
+        ),
+        Transaction(
+            user_id=user.user_id,
+            category_id=expense.category_id,
+            amount=1000.0,
+            type="expense",
+            description="March operating cost",
+            date=date(2026, 3, 18),
+        ),
+        Transaction(
+            user_id=user.user_id,
+            category_id=income.category_id,
+            amount=3000.0,
+            type="income",
+            description="April revenue",
+            date=date(2026, 4, 5),
+        ),
+        Transaction(
+            user_id=user.user_id,
+            category_id=expense.category_id,
+            amount=1000.0,
+            type="expense",
+            description="April operating cost",
+            date=date(2026, 4, 18),
+        ),
+    )
+
+    created = run_rules_for_user(db_session, user.user_id, date(2026, 4, 1), date(2026, 4, 30))
+
+    created_rule_ids = {insight.rule_id for insight in created}
+    assert "income_drop_percent" not in created_rule_ids
+    assert "profit_drop_percent" not in created_rule_ids
 
 
 def test_spending_spike_percent_rule_triggers_from_previous_period_growth(db_session):
@@ -852,6 +946,93 @@ def test_income_drop_percent_rule_supports_warning_threshold(db_session):
 
     income_drop_insight = next(insight for insight in created if insight.rule_id == "income_drop_percent")
     assert income_drop_insight.severity == "warning"
+
+
+def test_partial_period_skips_income_and_profit_drop_rules_when_early_month_income_is_outside_range(db_session):
+    user = _create_user(db_session, name="Partial Period User", email="partial-period@example.com")
+    income = _create_category(db_session, user_id=user.user_id, name="Sales", category_type="income")
+    expense = _create_category(db_session, user_id=user.user_id, name="Operations", category_type="expense")
+
+    _add_transactions(
+        db_session,
+        Transaction(
+            user_id=user.user_id,
+            category_id=income.category_id,
+            amount=3000.0,
+            type="income",
+            description="April revenue posted early",
+            date=date(2026, 4, 5),
+        ),
+        Transaction(
+            user_id=user.user_id,
+            category_id=expense.category_id,
+            amount=1200.0,
+            type="expense",
+            description="April operating cost",
+            date=date(2026, 4, 18),
+        ),
+    )
+
+    created = run_rules_for_user(db_session, user.user_id, date(2026, 4, 13), date(2026, 4, 30))
+
+    created_rule_ids = {insight.rule_id for insight in created}
+    assert "income_drop_percent" not in created_rule_ids
+    assert "profit_drop_percent" not in created_rule_ids
+
+
+def test_full_month_period_still_triggers_real_income_and_profit_drop_rules(db_session):
+    user = _create_user(db_session, name="Real Drop User", email="real-drop@example.com")
+    income = _create_category(db_session, user_id=user.user_id, name="Sales", category_type="income")
+    expense = _create_category(db_session, user_id=user.user_id, name="Operations", category_type="expense")
+
+    _add_transactions(
+        db_session,
+        Transaction(
+            user_id=user.user_id,
+            category_id=income.category_id,
+            amount=3000.0,
+            type="income",
+            description="March revenue",
+            date=date(2026, 3, 5),
+        ),
+        Transaction(
+            user_id=user.user_id,
+            category_id=expense.category_id,
+            amount=1000.0,
+            type="expense",
+            description="March operating cost",
+            date=date(2026, 3, 18),
+        ),
+        Transaction(
+            user_id=user.user_id,
+            category_id=income.category_id,
+            amount=1200.0,
+            type="income",
+            description="April revenue",
+            date=date(2026, 4, 5),
+        ),
+        Transaction(
+            user_id=user.user_id,
+            category_id=expense.category_id,
+            amount=1000.0,
+            type="expense",
+            description="April operating cost",
+            date=date(2026, 4, 18),
+        ),
+    )
+
+    created = run_rules_for_user(db_session, user.user_id, date(2026, 4, 1), date(2026, 4, 30))
+
+    income_drop_insight = next(insight for insight in created if insight.rule_id == "income_drop_percent")
+    profit_drop_insight = next(insight for insight in created if insight.rule_id == "profit_drop_percent")
+    assert income_drop_insight.severity == "critical"
+    assert profit_drop_insight.severity == "critical"
+    assert income_drop_insight.metadata_json is not None
+    assert income_drop_insight.metadata_json["previous_income"] == 3000.0
+    assert income_drop_insight.metadata_json["current_income"] == 1200.0
+    assert profit_drop_insight.metadata_json is not None
+    assert profit_drop_insight.metadata_json["previous_profit"] == 2000.0
+    assert profit_drop_insight.metadata_json["current_profit"] == 200.0
 
 
 def test_missing_budget_high_spend_evaluates_per_category_per_month(db_session):

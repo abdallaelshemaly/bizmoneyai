@@ -49,12 +49,14 @@ The current production ruleset contains these YAML rule ids:
 
 - `zero_income_with_expense`
   Trigger: current income is less than or equal to `defaults.min_income_for_ratio_rules` and current expense is greater than `0`.
+  Guard: runs only for full calendar-month selections so partial ranges do not create misleading no-income alerts.
   Scope: `period`.
 - `expense_ratio`
   Trigger: `current_expense / current_income` crosses configured thresholds.
   Scope: `period`.
 - `profit_drop_percent`
   Trigger: current-period profit is below previous-period profit and the drop percentage crosses thresholds.
+  Guard: runs only when the selected period is a full calendar month span so the comparison uses a full comparable previous month window.
   Scope: `period`.
 - `spending_spike_percent`
   Trigger: current-period expense is above previous-period expense and the increase percentage crosses thresholds.
@@ -73,6 +75,7 @@ The current production ruleset contains these YAML rule ids:
   Scope: `category_period`.
 - `income_drop_percent`
   Trigger: current-period income is below previous-period income and the drop percentage crosses thresholds.
+  Guard: runs only when the selected period is a full calendar month span so partial selections do not create misleading drop alerts.
   Scope: `period`.
 - `missing_budget_high_spend`
   Trigger: a category has expense spending in a specific month but no budget for that same category-month, and the spend crosses thresholds.
