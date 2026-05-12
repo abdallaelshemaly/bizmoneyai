@@ -65,6 +65,7 @@ from app.services.admin_analytics import (
 )
 from app.services.budget_metrics import list_budget_snapshots
 from app.services.fraud_insights import transaction_fraud_statuses
+from app.services.insight_ranker import rank_insights as rank_ai_insights
 from app.services.system_log import log_system_event
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
@@ -904,11 +905,12 @@ def list_admin_insights(
     user_id: int | None = Query(default=None),
     search: str | None = Query(default=None),
     severity: str | None = Query(default=None),
+    priority: str | None = Query(default=None),
     date_from: date | None = Query(default=None),
     date_to: date | None = Query(default=None),
     limit: int = Query(default=10, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-    sort_by: str = Query(default="created_at"),
+    sort_by: str = Query(default="priority_score"),
     sort_order: Literal["asc", "desc"] = Query(default="desc"),
     db: Session = Depends(get_db),
 ):
@@ -932,10 +934,26 @@ def list_admin_insights(
     if date_to is not None:
         query = query.filter(AIInsight.created_at < next_datetime_for_date(date_to))
 
+    query_rows = query.order_by(AIInsight.created_at.desc(), AIInsight.insight_id.desc()).all()
+    ranked_rows = rank_ai_insights([insight for insight, *_ in query_rows])
+    rank_map = {item.insight.insight_id: item for item in ranked_rows}
+
+    allowed_priority_levels = {"low", "medium", "high", "critical"}
+    normalized_priority = (priority or "").strip().lower() or None
+    if normalized_priority is not None and normalized_priority not in allowed_priority_levels:
+        allowed = ", ".join(sorted(allowed_priority_levels))
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unsupported priority '{priority}'. Allowed values: {allowed}",
+        )
+
     insights = []
     severity_counter: Counter[str] = Counter()
     trigger_counter: Counter[str] = Counter()
-    for insight, user_name, user_email in query.order_by(AIInsight.created_at.desc()).all():
+    for insight, user_name, user_email in query_rows:
+        ranked = rank_map.get(insight.insight_id)
+        if normalized_priority is not None and ranked is not None and ranked.priority_level != normalized_priority:
+            continue
         insights.append(
             AdminInsightOut(
                 insight_id=insight.insight_id,
@@ -948,6 +966,9 @@ def list_admin_insights(
                 period_start=insight.period_start,
                 period_end=insight.period_end,
                 created_at=insight.created_at,
+                priority_score=ranked.priority_score if ranked is not None else None,
+                priority_level=ranked.priority_level if ranked is not None else None,
+                priority_reason=ranked.priority_reason if ranked is not None else None,
             )
         )
         severity_counter[insight.severity] += 1
@@ -965,6 +986,8 @@ def list_admin_insights(
         insights,
         key=lambda item: _sort_value(
             {
+                "priority_score": item.priority_score,
+                "priority_level": item.priority_level,
                 "created_at": item.created_at,
                 "title": item.title,
                 "severity": item.severity,

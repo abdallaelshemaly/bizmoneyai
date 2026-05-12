@@ -326,6 +326,9 @@ class AdminInsightOut(BaseModel):
     period_start: date
     period_end: date
     created_at: datetime
+    priority_score: float | None = None
+    priority_level: Literal["low", "medium", "high", "critical"] | None = None
+    priority_reason: str | None = None
 
 
 class AdminUserOverview(BaseModel):

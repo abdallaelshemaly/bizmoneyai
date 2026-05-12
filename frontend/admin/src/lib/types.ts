@@ -324,6 +324,9 @@ export type AdminInsightRow = {
   period_start: string;
   period_end: string;
   created_at: string;
+  priority_score: number | null;
+  priority_level: "low" | "medium" | "high" | "critical" | null;
+  priority_reason: string | null;
 };
 
 export type AdminInsightsResponse = AdminPaginationMeta & {

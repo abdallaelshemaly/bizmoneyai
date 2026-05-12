@@ -24,6 +24,7 @@ from app.models.category import Category
 from app.models.system_log import SystemLog
 from app.models.transaction import Transaction
 from app.models.user import User
+from app.services.insight_ranker import RankedInsight
 
 
 def create_test_app() -> FastAPI:
@@ -547,6 +548,94 @@ def test_auth_and_ai_routes_write_requested_system_logs(db_session, monkeypatch)
         assert "user_registration" in event_types
         assert "user_login" in event_types
         assert "generate_insights" in event_types
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_admin_insights_include_priority_fields_and_support_priority_sort_and_filter(db_session, monkeypatch):
+    monkeypatch.setattr(admin_auth_module, "verify_password", lambda plain, hashed: plain == hashed)
+
+    admin = Admin(name="Ops Admin", email="admin@example.com", password_hash="secret123")
+    user = User(name="Alpha User", email="alpha@example.com", password_hash="pw", is_active=True)
+    db_session.add_all([admin, user])
+    db_session.commit()
+    db_session.refresh(user)
+
+    critical_insight = AIInsight(
+        user_id=user.user_id,
+        rule_id="ml_unusual_transaction",
+        title="Critical Unusual Transaction Detected",
+        message="Review this transaction immediately.",
+        severity="critical",
+        period_start=date(2026, 4, 10),
+        period_end=date(2026, 4, 10),
+    )
+    info_insight = AIInsight(
+        user_id=user.user_id,
+        rule_id="info_summary",
+        title="Small Info Insight",
+        message="General spending is steady.",
+        severity="info",
+        period_start=date(2026, 4, 1),
+        period_end=date(2026, 4, 30),
+    )
+    critical_insight.created_at = datetime(2026, 4, 11, 12, 0, 0)
+    info_insight.created_at = datetime(2026, 4, 9, 12, 0, 0)
+    db_session.add_all([critical_insight, info_insight])
+    db_session.commit()
+    db_session.refresh(critical_insight)
+    db_session.refresh(info_insight)
+
+    def fake_rank_insights(insights):
+        by_id = {insight.insight_id: insight for insight in insights}
+        return [
+            RankedInsight(
+                insight=by_id[critical_insight.insight_id],
+                priority_score=97.5,
+                priority_level="critical",
+                priority_reason="Critical severity",
+            ),
+            RankedInsight(
+                insight=by_id[info_insight.insight_id],
+                priority_score=42.0,
+                priority_level="low",
+                priority_reason="Recent insight",
+            ),
+        ]
+
+    monkeypatch.setattr("app.api.admin.rank_ai_insights", fake_rank_insights)
+
+    app = create_test_app()
+    app.dependency_overrides[get_db] = lambda: db_session
+    client = TestClient(app)
+
+    try:
+        login_response = client.post(
+            "/admin/auth/login",
+            json={"email": "admin@example.com", "password": "secret123"},
+        )
+        assert login_response.status_code == 200
+
+        response = client.get("/admin/insights")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == 2
+        assert body["sort_by"] == "priority_score"
+        assert body["sort_order"] == "desc"
+        assert body["insights"][0]["title"] == "Critical Unusual Transaction Detected"
+        assert body["insights"][0]["priority_score"] == 97.5
+        assert body["insights"][0]["priority_level"] == "critical"
+        assert body["insights"][0]["priority_reason"] == "Critical severity"
+        assert body["insights"][1]["priority_level"] == "low"
+
+        filtered_response = client.get("/admin/insights", params={"priority": "critical"})
+        assert filtered_response.status_code == 200
+        filtered_body = filtered_response.json()
+        assert filtered_body["total"] == 1
+        assert filtered_body["insights"][0]["title"] == "Critical Unusual Transaction Detected"
+
+        invalid_response = client.get("/admin/insights", params={"priority": "urgent"})
+        assert invalid_response.status_code == 422
     finally:
         app.dependency_overrides.clear()
 

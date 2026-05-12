@@ -43,11 +43,12 @@ export default function AdminInsightsPage() {
     initialFilters: {
       user_id: "",
       severity: "",
+      priority: "",
       date_from: "",
       date_to: "",
     },
     initialLimit: 10,
-    defaultSort: { key: "created_at", order: "desc" },
+    defaultSort: { key: "priority_score", order: "desc" },
     errorMessage: "Failed to load AI insights.",
   });
 
@@ -73,9 +74,46 @@ export default function AdminInsightsPage() {
         { label: "Critical", value: "critical" },
       ],
     },
+    {
+      key: "priority",
+      type: "select",
+      options: [
+        { label: "All priorities", value: "" },
+        { label: "Critical priority", value: "critical" },
+        { label: "High priority", value: "high" },
+        { label: "Medium priority", value: "medium" },
+        { label: "Low priority", value: "low" },
+      ],
+    },
     { key: "date_from", type: "date" },
     { key: "date_to", type: "date" },
   ];
+
+  const priorityBadgeClassName = (priorityLevel: AdminInsightRow["priority_level"]) => {
+    if (priorityLevel === "critical") {
+      return "bg-rose-100 text-rose-700";
+    }
+    if (priorityLevel === "high") {
+      return "bg-orange-100 text-orange-700";
+    }
+    if (priorityLevel === "medium") {
+      return "bg-sky-100 text-sky-700";
+    }
+    return "bg-slate-100 text-slate-700";
+  };
+
+  const priorityLabel = (priorityLevel: AdminInsightRow["priority_level"]) => {
+    if (priorityLevel === "critical") {
+      return "Critical priority";
+    }
+    if (priorityLevel === "high") {
+      return "High priority";
+    }
+    if (priorityLevel === "medium") {
+      return "Medium priority";
+    }
+    return "Low priority";
+  };
 
   const columns: DataTableColumn<AdminInsightRow>[] = [
     {
@@ -97,9 +135,10 @@ export default function AdminInsightsPage() {
       sortKey: "title",
       widthClassName: "min-w-[280px]",
       render: (insight) => (
-        <div>
+        <div className="space-y-1">
           <p className="font-medium text-slate-900">{insight.title}</p>
           <p className="text-slate-500">{insight.message}</p>
+          {insight.priority_reason ? <p className="text-xs text-slate-400">{insight.priority_reason}</p> : null}
         </div>
       ),
     },
@@ -121,6 +160,26 @@ export default function AdminInsightsPage() {
           {insight.severity}
         </span>
       ),
+    },
+    {
+      key: "priority",
+      label: "Priority",
+      sortable: true,
+      sortKey: "priority_score",
+      render: (insight) =>
+        insight.priority_level ? (
+          <div className="space-y-1">
+            <span
+              className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${priorityBadgeClassName(
+                insight.priority_level,
+              )}`}
+            >
+              {priorityLabel(insight.priority_level)}
+            </span>
+          </div>
+        ) : (
+          <span className="text-slate-400">Unavailable</span>
+        ),
     },
     {
       key: "period",
