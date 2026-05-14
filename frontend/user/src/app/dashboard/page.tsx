@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import axios from "axios";
 
+import BizMoneyLoader from "@/components/BizMoneyLoader";
 import CategoryBreakdownChart from "@/components/CategoryBreakdownChart";
 import MonthlyTrendChart from "@/components/MonthlyTrendChart";
 import Navbar from "@/components/Navbar";
@@ -68,6 +69,7 @@ const FORECAST_UNAVAILABLE_MESSAGE = "Spending forecast is unavailable until mor
 export default function DashboardPage() {
   const { user, loading } = useAuth();
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [initialSummaryLoading, setInitialSummaryLoading] = useState(true);
   const [forecast, setForecast] = useState<SpendingForecast | null>(null);
   const [recommendations, setRecommendations] = useState<BudgetRecommendation[]>([]);
   const [recommendationsLoading, setRecommendationsLoading] = useState(false);
@@ -80,7 +82,8 @@ export default function DashboardPage() {
     if (!user) return;
     void api
       .get<Summary>("/dashboard/summary", { params: { month: `${selectedMonth}-01` } })
-      .then((r) => setSummary(r.data));
+      .then((r) => setSummary(r.data))
+      .finally(() => setInitialSummaryLoading(false));
   }, [user, selectedMonth]);
 
   useEffect(() => {
@@ -111,8 +114,8 @@ export default function DashboardPage() {
       .finally(() => setRecommendationsLoading(false));
   }, [user]);
 
-  if (loading) {
-    return <div className="flex min-h-screen items-center justify-center text-slate-400">Loading...</div>;
+  if (loading || initialSummaryLoading) {
+    return <BizMoneyLoader fullScreen />;
   }
 
   const fmt = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });

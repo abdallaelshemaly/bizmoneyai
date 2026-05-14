@@ -14,6 +14,7 @@ import {
   YAxis,
 } from "recharts";
 
+import BizMoneyLoader from "@/components/BizMoneyLoader";
 import AdminMetricCard from "@/components/AdminMetricCard";
 import AdminPanel from "@/components/AdminPanel";
 import AdminShell from "@/components/AdminShell";
@@ -153,10 +154,7 @@ export default function AdminBudgetsPage() {
         </div>
 
         {table.isLoading && !data ? (
-          <div className="grid gap-6 lg:grid-cols-2">
-            <div className="h-56 animate-pulse rounded-2xl bg-white shadow-sm" />
-            <div className="h-56 animate-pulse rounded-2xl bg-white shadow-sm" />
-          </div>
+          <BizMoneyLoader minHeightClassName="min-h-[24rem]" label="Loading budget monitoring" />
         ) : (
           <>
             <div className="grid gap-6 xl:grid-cols-2">

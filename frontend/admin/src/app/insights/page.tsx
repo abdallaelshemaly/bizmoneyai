@@ -13,6 +13,7 @@ import {
   YAxis,
 } from "recharts";
 
+import BizMoneyLoader from "@/components/BizMoneyLoader";
 import AdminMetricCard from "@/components/AdminMetricCard";
 import AdminPanel from "@/components/AdminPanel";
 import AdminShell from "@/components/AdminShell";
@@ -219,10 +220,7 @@ export default function AdminInsightsPage() {
         {table.error && <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{table.error}</div>}
 
         {table.isLoading && !data ? (
-          <div className="grid gap-6 lg:grid-cols-2">
-            <div className="h-56 animate-pulse rounded-2xl bg-white shadow-sm" />
-            <div className="h-56 animate-pulse rounded-2xl bg-white shadow-sm" />
-          </div>
+          <BizMoneyLoader minHeightClassName="min-h-[24rem]" label="Loading AI insight monitoring" />
         ) : (
           <>
             <div className="grid gap-4 md:grid-cols-3">

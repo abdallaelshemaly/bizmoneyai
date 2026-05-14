@@ -3,7 +3,10 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import BizMoneyLoader from "@/components/BizMoneyLoader";
 import api from "@/lib/api";
+
+const LOGIN_TRANSITION_MS = 1500;
 
 function AdminMark() {
   return (
@@ -65,6 +68,7 @@ export default function AdminLoginPage() {
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showSuccessLoader, setShowSuccessLoader] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -75,16 +79,23 @@ export default function AdminLoginPage() {
 
     try {
       await api.post("/admin/auth/login", form);
+      setShowSuccessLoader(true);
+      await new Promise((resolve) => setTimeout(resolve, LOGIN_TRANSITION_MS));
       router.push("/");
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
         "Invalid admin email or password.";
       setError(String(msg));
+      setShowSuccessLoader(false);
     } finally {
       setLoading(false);
     }
   };
+
+  if (showSuccessLoader) {
+    return <BizMoneyLoader fullScreen label="Opening admin console" />;
+  }
 
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_50%_10%,rgba(20,184,166,0.12),transparent_20%),radial-gradient(circle_at_52%_78%,rgba(16,185,129,0.12),transparent_22%),linear-gradient(135deg,#031126_0%,#071a34_48%,#061329_100%)] px-4 py-10 text-white">

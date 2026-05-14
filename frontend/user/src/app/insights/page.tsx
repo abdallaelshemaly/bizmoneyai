@@ -3,6 +3,7 @@
 import axios from "axios";
 import { useEffect, useState } from "react";
 
+import BizMoneyLoader from "@/components/BizMoneyLoader";
 import Navbar from "@/components/Navbar";
 import { useAuth } from "@/hooks/useAuth";
 import api from "@/lib/api";
@@ -86,6 +87,7 @@ function readableApiError(error: unknown, fallback: string) {
 export default function InsightsPage() {
   const { user, loading } = useAuth();
   const [insights, setInsights] = useState<Insight[]>([]);
+  const [initialInsightsLoading, setInitialInsightsLoading] = useState(true);
   const [loadingInsights, setLoadingInsights] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [gen, setGen] = useState(false);
@@ -110,6 +112,7 @@ export default function InsightsPage() {
       }
     } finally {
       setLoadingInsights(false);
+      setInitialInsightsLoading(false);
     }
   };
 
@@ -160,8 +163,8 @@ export default function InsightsPage() {
     }
   };
 
-  if (loading) {
-    return <div className="flex min-h-screen items-center justify-center text-slate-400">Loading...</div>;
+  if (loading || initialInsightsLoading) {
+    return <BizMoneyLoader fullScreen />;
   }
 
   const filteredInsights = severityFilter === "all" ? insights : insights.filter((ins) => ins.severity === severityFilter);
@@ -258,9 +261,7 @@ export default function InsightsPage() {
         </div>
 
         {loadingInsights && insights.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-slate-300 p-12 text-center">
-            <p className="text-lg text-slate-400">Loading insights...</p>
-          </div>
+          <BizMoneyLoader minHeightClassName="min-h-[20rem]" label="Loading insights" />
         ) : filteredInsights.length === 0 ? (
           <div className="rounded-xl border border-dashed border-slate-300 p-12 text-center">
             <p className="text-lg text-slate-400">{insights.length === 0 ? "No insights yet." : "No insights match this filter."}</p>

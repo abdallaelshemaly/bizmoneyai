@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
+import BizMoneyLoader from "@/components/BizMoneyLoader";
 import { PUBLIC_ADMIN_PATHS, useAdminSession } from "@/hooks/useAdminSession";
 
 export default function ProtectedAdminRoute({ children }: { children: React.ReactNode }) {
@@ -37,7 +38,7 @@ export default function ProtectedAdminRoute({ children }: { children: React.Reac
   }
 
   if (loading) {
-    return <div className="flex min-h-screen items-center justify-center text-slate-400">Loading admin console...</div>;
+    return <BizMoneyLoader fullScreen />;
   }
 
   if (!admin) {

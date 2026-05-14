@@ -1,5 +1,6 @@
 "use client";
 
+import BizMoneyLoader from "@/components/BizMoneyLoader";
 import AdminMetricCard from "@/components/AdminMetricCard";
 import AdminPanel from "@/components/AdminPanel";
 import AdminShell from "@/components/AdminShell";
@@ -158,6 +159,7 @@ export default function AdminLogsPage() {
   ];
 
   const summary = table.data?.summary;
+  const isInitialLoading = table.isLoading && !table.data;
 
   return (
     <AdminShell
@@ -169,6 +171,9 @@ export default function AdminLogsPage() {
         </button>
       }
     >
+      {isInitialLoading ? (
+        <BizMoneyLoader minHeightClassName="min-h-[28rem]" label="Loading system logs" />
+      ) : (
       <div className="space-y-6">
         {table.error && <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{table.error}</div>}
 
@@ -204,6 +209,7 @@ export default function AdminLogsPage() {
           />
         </AdminPanel>
       </div>
+      )}
     </AdminShell>
   );
 }

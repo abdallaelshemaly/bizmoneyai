@@ -3,6 +3,7 @@
 import { isAxiosError } from "axios";
 import { useEffect, useState } from "react";
 
+import BizMoneyLoader from "@/components/BizMoneyLoader";
 import Navbar from "@/components/Navbar";
 import { useAuth } from "@/hooks/useAuth";
 import api from "@/lib/api";
@@ -20,14 +21,19 @@ const TS = {
 export default function CategoriesPage() {
   const { user, loading } = useAuth();
   const [cats, setCats] = useState<Category[]>([]);
+  const [initialCategoriesLoading, setInitialCategoriesLoading] = useState(true);
   const [form, setForm] = useState<Form>(EMPTY);
   const [editId, setEditId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   const refresh = async () => {
-    const r = await api.get<Category[]>("/categories");
-    setCats(r.data);
+    try {
+      const r = await api.get<Category[]>("/categories");
+      setCats(r.data);
+    } finally {
+      setInitialCategoriesLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -86,8 +92,8 @@ export default function CategoriesPage() {
     }
   };
 
-  if (loading) {
-    return <div className="flex min-h-screen items-center justify-center text-slate-400">Loading...</div>;
+  if (loading || initialCategoriesLoading) {
+    return <BizMoneyLoader fullScreen />;
   }
 
   return (

@@ -2,6 +2,7 @@
 
 import { ReactNode } from "react";
 
+import BizMoneyLoader from "@/components/BizMoneyLoader";
 import { AdminSortOrder } from "@/lib/types";
 
 export type DataTableColumn<Row> = {
@@ -147,7 +148,7 @@ export default function DataTable<Row>({
       )}
 
       {isLoading ? (
-        <div className="h-56 animate-pulse rounded-2xl bg-slate-50" />
+        <BizMoneyLoader minHeightClassName="min-h-56" label="Loading table data" />
       ) : rows.length === 0 ? (
         <p className="text-sm text-slate-400">{emptyMessage}</p>
       ) : (

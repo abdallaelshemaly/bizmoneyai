@@ -3,7 +3,10 @@
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
+import BizMoneyLoader from "@/components/BizMoneyLoader";
 import api from "@/lib/api";
+
+const LOGIN_TRANSITION_MS = 1500;
 
 function BrandMark() {
   return (
@@ -53,6 +56,7 @@ export default function LoginPage() {
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showSuccessLoader, setShowSuccessLoader] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -63,16 +67,23 @@ export default function LoginPage() {
 
     try {
       await api.post("/auth/login", form);
+      setShowSuccessLoader(true);
+      await new Promise((resolve) => setTimeout(resolve, LOGIN_TRANSITION_MS));
       router.push("/dashboard");
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
         "Invalid email or password.";
       setError(String(msg));
+      setShowSuccessLoader(false);
     } finally {
       setLoading(false);
     }
   };
+
+  if (showSuccessLoader) {
+    return <BizMoneyLoader fullScreen label="Signing you in" />;
+  }
 
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_10%_78%,rgba(52,211,153,0.22),transparent_5%),radial-gradient(circle_at_90%_88%,rgba(34,197,94,0.18),transparent_7%),linear-gradient(135deg,#fbfefc_0%,#f2fbf7_52%,#f8fcf8_100%)] px-4 py-10">

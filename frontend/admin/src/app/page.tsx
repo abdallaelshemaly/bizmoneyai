@@ -19,6 +19,7 @@ import {
   YAxis,
 } from "recharts";
 
+import BizMoneyLoader from "@/components/BizMoneyLoader";
 import AdminMetricCard from "@/components/AdminMetricCard";
 import AdminPanel from "@/components/AdminPanel";
 import AdminShell from "@/components/AdminShell";
@@ -223,12 +224,7 @@ export default function AdminDashboardPage() {
         </AdminPanel>
 
         {isInitialLoading || !data ? (
-          <div className="grid gap-6 lg:grid-cols-2">
-            <div className="h-56 animate-pulse rounded-2xl bg-white shadow-sm" />
-            <div className="h-56 animate-pulse rounded-2xl bg-white shadow-sm" />
-            <div className="h-56 animate-pulse rounded-2xl bg-white shadow-sm" />
-            <div className="h-56 animate-pulse rounded-2xl bg-white shadow-sm" />
-          </div>
+          <BizMoneyLoader minHeightClassName="min-h-[28rem]" label="Loading monitoring dashboard" />
         ) : (
           <div className={`space-y-6 transition-opacity ${isRefreshing ? "opacity-80" : "opacity-100"}`}>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-9">

@@ -1,5 +1,6 @@
 "use client";
 
+import BizMoneyLoader from "@/components/BizMoneyLoader";
 import { formatCompactNumber, formatCurrency, formatDate, formatDateTime } from "@/lib/format";
 import { AdminUserOverview } from "@/lib/types";
 
@@ -15,7 +16,7 @@ export default function AdminUserOverviewPanel({
   error = "",
 }: AdminUserOverviewPanelProps) {
   if (loading && !overview) {
-    return <div className="h-64 animate-pulse rounded-2xl bg-slate-100" />;
+    return <BizMoneyLoader minHeightClassName="min-h-64" label="Loading selected user" />;
   }
 
   if (error) {

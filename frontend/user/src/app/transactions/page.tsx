@@ -3,6 +3,7 @@
 import { isAxiosError } from "axios";
 import { useEffect, useRef, useState } from "react";
 
+import BizMoneyLoader from "@/components/BizMoneyLoader";
 import Navbar from "@/components/Navbar";
 import { useAuth } from "@/hooks/useAuth";
 import api from "@/lib/api";
@@ -42,6 +43,7 @@ export default function TransactionsPage() {
   const [cats, setCats] = useState<Cat[]>([]);
   const [txs, setTxs] = useState<Tx[]>([]);
   const [txLoading, setTxLoading] = useState(false);
+  const [initialPageLoading, setInitialPageLoading] = useState(true);
   const [form, setForm] = useState<FormState>(EMPTY);
   const [editId, setEditId] = useState<number | null>(null);
   const [sug, setSug] = useState<Sug | null>(null);
@@ -107,6 +109,7 @@ export default function TransactionsPage() {
     } finally {
       if (requestId === activeTxRequestRef.current) {
         setTxLoading(false);
+        setInitialPageLoading(false);
       }
     }
   };
@@ -300,8 +303,8 @@ export default function TransactionsPage() {
     setFDateTo("");
   };
 
-  if (loading) {
-    return <div className="flex min-h-screen items-center justify-center text-slate-400">Loading...</div>;
+  if (loading || initialPageLoading) {
+    return <BizMoneyLoader fullScreen />;
   }
 
   const cName = (id: number) => cats.find((c) => c.category_id === id)?.name ?? "-";
@@ -435,7 +438,7 @@ export default function TransactionsPage() {
 
         <div className="overflow-x-auto rounded-xl bg-white shadow">
           {txLoading ? (
-            <p className="p-8 text-center text-sm text-slate-400">Loading transactions...</p>
+            <BizMoneyLoader minHeightClassName="min-h-[18rem]" label="Loading transactions" />
           ) : txs.length === 0 ? (
             <p className="p-8 text-center text-sm text-slate-400">No transactions found.</p>
           ) : (

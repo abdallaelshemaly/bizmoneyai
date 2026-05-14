@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 
+import BizMoneyLoader from "@/components/BizMoneyLoader";
 import Navbar from "@/components/Navbar";
 import { useAuth } from "@/hooks/useAuth";
 import api from "@/lib/api";
@@ -44,6 +45,7 @@ export default function BudgetsPage() {
   const { user, loading } = useAuth();
   const [categories, setCategories] = useState<Category[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
+  const [initialBudgetsLoading, setInitialBudgetsLoading] = useState(true);
   const [recommendations, setRecommendations] = useState<BudgetRecommendation[]>([]);
   const [recommendationsLoading, setRecommendationsLoading] = useState(false);
   const [recommendationsError, setRecommendationsError] = useState<string | null>(null);
@@ -54,13 +56,17 @@ export default function BudgetsPage() {
   const [error, setError] = useState("");
 
   const refresh = async (month = selectedMonth) => {
-    const monthParam = `${month}-01`;
-    const [categoriesResponse, budgetsResponse] = await Promise.all([
-      api.get<Category[]>("/categories"),
-      api.get<Budget[]>(`/budgets?month=${monthParam}`),
-    ]);
-    setCategories(categoriesResponse.data.filter((category) => category.type !== "income"));
-    setBudgets(budgetsResponse.data);
+    try {
+      const monthParam = `${month}-01`;
+      const [categoriesResponse, budgetsResponse] = await Promise.all([
+        api.get<Category[]>("/categories"),
+        api.get<Budget[]>(`/budgets?month=${monthParam}`),
+      ]);
+      setCategories(categoriesResponse.data.filter((category) => category.type !== "income"));
+      setBudgets(budgetsResponse.data);
+    } finally {
+      setInitialBudgetsLoading(false);
+    }
   };
 
   const loadRecommendations = async () => {
@@ -162,8 +168,8 @@ export default function BudgetsPage() {
     }
   };
 
-  if (loading) {
-    return <div className="flex min-h-screen items-center justify-center text-slate-400">Loading...</div>;
+  if (loading || initialBudgetsLoading) {
+    return <BizMoneyLoader fullScreen />;
   }
 
   const totalBudget = budgets.reduce((sum, budget) => sum + budget.amount, 0);
