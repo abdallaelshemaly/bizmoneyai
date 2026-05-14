@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -39,8 +40,20 @@ export default function AdminShell({
       <div className="grid min-h-screen lg:grid-cols-[280px_1fr]">
         <aside className="border-b border-slate-800 bg-slate-950 px-5 py-6 text-slate-100 lg:border-b-0 lg:border-r">
           <div className="mb-8">
-            <p className="text-xs uppercase tracking-[0.28em] text-emerald-300">BizMoneyAI</p>
-            <h1 className="mt-2 text-2xl font-semibold">Admin Console</h1>
+            <div className="flex items-center gap-3">
+              <Image
+                src="/assets/bizmoneyai-circle-logo.png"
+                alt="BizMoneyAI logo"
+                width={34}
+                height={34}
+                priority
+                className="h-[34px] w-[34px] rounded-full"
+              />
+              <div>
+                <p className="text-xs uppercase tracking-[0.28em] text-emerald-300">BizMoneyAI</p>
+                <h1 className="mt-1 text-2xl font-semibold">Admin Console</h1>
+              </div>
+            </div>
           </div>
 
           <nav className="flex flex-col gap-2">

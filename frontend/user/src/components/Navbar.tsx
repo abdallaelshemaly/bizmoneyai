@@ -1,4 +1,5 @@
 "use client";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import api from "@/lib/api";
@@ -15,7 +16,17 @@ export default function Navbar({ userName }: { userName?: string }) {
   const logout = async () => { await api.post("/auth/logout"); router.push("/login"); };
   return (
     <nav className="sticky top-0 z-50 flex items-center justify-between bg-ink px-6 py-3 shadow-md">
-      <Link href="/dashboard" className="text-lg font-bold text-mint tracking-tight">BizMoneyAI</Link>
+      <Link href="/dashboard" className="flex items-center gap-3 text-lg font-bold tracking-tight text-mint">
+        <Image
+          src="/assets/bizmoneyai-circle-logo.png"
+          alt="BizMoneyAI logo"
+          width={32}
+          height={32}
+          priority
+          className="h-8 w-8 rounded-full"
+        />
+        <span>BizMoneyAI</span>
+      </Link>
       <div className="flex items-center gap-4">
         {NAV.map(n => (
           <Link key={n.href} href={n.href}
